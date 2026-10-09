@@ -1,0 +1,681 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="คำนวณขนาดยาเด็กตามน้ำหนักและอายุ ตามบัญชียาโรงพยาบาลพังงา">
+<style>html{color-scheme:light}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>PedDose ขนาดยาเด็ก</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anuphan:wght@500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: sticky patient strip (weight + age) over a filterable list of drug "labels"; each label computes the dose for the entered weight. References listed at the foot. */
+:root{
+  --bg:#eef3f1; --surface:#ffffff; --ink:#11302a; --muted:#587069; --line:#d3e0db;
+  --accent:#0d6e66; --accent-soft:#dcefeb; --warn:#a85a07; --warn-soft:#fdf0dc; --danger:#b42318; --danger-soft:#fde5e2;
+  --f-display:"Anuphan","IBM Plex Sans Thai",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans Thai",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0c1513; --surface:#14201d; --ink:#e2eeea; --muted:#8ea69f; --line:#25362f;
+  --accent:#4ccbb9; --accent-soft:#16332e; --warn:#f0a54e; --warn-soft:#33260f; --danger:#f2766b; --danger-soft:#3a1714; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0c1513; --surface:#14201d; --ink:#e2eeea; --muted:#8ea69f; --line:#25362f;
+  --accent:#4ccbb9; --accent-soft:#16332e; --warn:#f0a54e; --warn-soft:#33260f; --danger:#f2766b; --danger-soft:#3a1714; color-scheme:dark}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.55}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:16px;padding-block:20px 48px}
+header.top{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:4px 16px;margin-bottom:14px}
+h1{font-family:var(--f-display);font-weight:700;font-size:1.65rem;margin:0;letter-spacing:-.01em;text-wrap:balance}
+h1 span{color:var(--accent)}
+.src{color:var(--muted);font-size:.82rem}
+.src a{color:var(--accent)}
+
+.patient{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:14px;box-shadow:0 6px 18px -14px rgba(0,0,0,.35)}
+@media (max-width:640px){.patient{grid-template-columns:1fr;position:static}}
+.lbl{font-size:.74rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:600;margin-bottom:6px;display:block}
+.wt{display:flex;align-items:center;gap:8px}
+.wt input{width:100%;min-width:0;font-family:var(--f-mono);font-size:1.8rem;font-weight:600;color:var(--ink);background:var(--bg);border:1.5px solid var(--line);border-radius:10px;padding:4px 12px;text-align:center}
+.wt .unit{font-family:var(--f-mono);color:var(--muted);font-weight:600}
+.step{flex:none;width:42px;height:46px;border-radius:10px;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);font-size:1.3rem;cursor:pointer}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chip{font:500 .82rem var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:3px 11px;cursor:pointer}
+.chip.mono{font-family:var(--f-mono)}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--surface)}
+.age{display:flex;gap:8px}
+.age label{flex:1;display:flex;align-items:center;gap:6px;background:var(--bg);border:1.5px solid var(--line);border-radius:10px;padding:4px 10px}
+.age input{width:100%;min-width:0;border:0;background:transparent;color:var(--ink);font-family:var(--f-mono);font-size:1.25rem;font-weight:600;padding:4px 0}
+.age span{color:var(--muted);font-size:.85rem;white-space:nowrap}
+.hint{color:var(--muted);font-size:.8rem;margin-top:6px}
+input:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.notice{margin-top:12px;font-size:.84rem;background:var(--warn-soft);color:var(--warn);border-radius:10px;padding:8px 12px}
+.tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:16px 0 10px}
+.search{flex:1 1 220px;min-width:0;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);border-radius:10px;padding:9px 12px;font:inherit}
+.tabs{display:flex;flex-wrap:wrap;gap:6px}
+
+h2{font-family:var(--f-display);font-size:1.15rem;margin:26px 0 10px;font-weight:600}
+h2 small{font-family:var(--f-body);font-weight:400;color:var(--muted);font-size:.85rem;margin-left:6px}
+.list{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,440px),1fr));gap:12px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 14px 12px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.card.blocked{border-color:var(--danger)}
+.ch{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}
+.name{font-family:var(--f-display);font-weight:700;font-size:1.08rem;line-height:1.25}
+.strength{color:var(--muted);font-size:.84rem}
+.cat{flex:none;font-size:.72rem;color:var(--accent);background:var(--accent-soft);border-radius:6px;padding:2px 8px;font-weight:600;white-space:nowrap}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opts .chip{font-size:.78rem;padding:2px 10px}
+.result{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px;border-top:1px dashed var(--line);padding-top:10px}
+.big{font-family:var(--f-mono);font-weight:600;font-size:1.7rem;color:var(--accent);line-height:1.1;font-variant-numeric:tabular-nums}
+.big small{font-size:.95rem;color:var(--ink);margin-left:4px}
+.freq{font-weight:600}
+.meta{font-family:var(--f-mono);font-size:.8rem;color:var(--muted);font-variant-numeric:tabular-nums;width:100%}
+.note{font-size:.84rem;color:var(--ink)}
+.flag{font-size:.82rem;border-radius:8px;padding:6px 10px;background:var(--warn-soft);color:var(--warn)}
+.flag.danger{background:var(--danger-soft);color:var(--danger);font-weight:600}
+.refs{font-size:.78rem;color:var(--muted);display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.refs a{font-family:var(--f-mono);color:var(--accent);text-decoration:none;border:1px solid var(--line);border-radius:5px;padding:0 5px}
+.refs a:hover{background:var(--accent-soft)}
+details{font-size:.84rem;color:var(--muted)}
+summary{cursor:pointer;color:var(--accent);font-weight:500}
+details p{margin:6px 0 0;white-space:pre-line}
+
+.agetbl{width:100%;border-collapse:collapse;font-size:.88rem}
+.agetbl td{padding:5px 8px;border-top:1px solid var(--line);vertical-align:top}
+.agetbl td:first-child{white-space:nowrap;color:var(--muted);width:1%}
+.agetbl tr.on td{background:var(--accent-soft);color:var(--ink);font-weight:600}
+.agetbl tr.on td:first-child{color:var(--accent)}
+.empty{color:var(--muted);padding:20px 0}
+.reflist{margin:0;padding-left:0;list-style:none;display:grid;gap:6px;font-size:.84rem}
+.reflist li{display:grid;grid-template-columns:2.6em minmax(0,1fr);gap:6px;scroll-margin-top:200px}
+.reflist li:target{background:var(--accent-soft);border-radius:6px}
+.reflist b{font-family:var(--f-mono);color:var(--accent);font-weight:600;text-align:right}
+.toggle{display:flex;align-items:center;gap:8px;font-size:.88rem;font-weight:500;background:var(--surface);border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;cursor:pointer}
+.toggle input{accent-color:var(--accent);width:18px;height:18px;margin:0}
+.hos{font-size:.76rem;color:var(--muted);font-family:var(--f-mono)}
+.hos b{font-family:var(--f-body);font-weight:600;color:var(--accent)}
+.hos.no b{color:var(--warn)}
+.chip .x{font-size:.7rem;color:var(--warn);margin-left:4px}
+.chip[aria-pressed="true"] .x{color:inherit}
+footer{margin-top:28px;color:var(--muted);font-size:.8rem;border-top:1px solid var(--line);padding-top:14px;display:grid;gap:4px}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header class="top">
+    <h1>PedDose <span>ขนาดยาเด็ก</span></h1>
+    <div class="src">ปรับปรุง ต.ค. 2569 · บัญชียา รพ.พังงา 2569 · <a href="#refs">เอกสารอ้างอิง</a></div>
+  </header>
+
+  <section class="patient" aria-label="ข้อมูลผู้ป่วย">
+    <div>
+      <span class="lbl">น้ำหนักตัว</span>
+      <div class="wt">
+        <button class="step" id="wtMinus" aria-label="ลดน้ำหนัก 0.5 kg">−</button>
+        <input id="wt" type="number" inputmode="decimal" min="0.5" max="150" step="0.1" value="10" aria-label="น้ำหนัก (kg)">
+        <span class="unit">kg</span>
+        <button class="step" id="wtPlus" aria-label="เพิ่มน้ำหนัก 0.5 kg">+</button>
+      </div>
+      <div class="chips" id="wtChips"></div>
+    </div>
+    <div>
+      <span class="lbl">อายุ (ตรวจข้อห้าม + ขนาดตามอายุ)</span>
+      <div class="age">
+        <label><input id="ageY" type="number" inputmode="numeric" min="0" max="18" placeholder="–" aria-label="อายุ ปี"><span>ปี</span></label>
+        <label><input id="ageM" type="number" inputmode="numeric" min="0" max="11" placeholder="–" aria-label="อายุ เดือน"><span>เดือน</span></label>
+      </div>
+      <div class="hint" id="ageHint">ไม่ระบุอายุ ระบบจะไม่ตรวจข้อห้ามตามอายุ</div>
+    </div>
+  </section>
+  <div class="notice" id="neoNotice" hidden>อายุ &lt; 1 เดือน: ขนาดยาในแอปนี้ใช้กับทารกและเด็ก ไม่ครอบคลุมทารกแรกเกิด ให้ใช้ขนาดยาตาม postmenstrual/postnatal age จาก Neofax หรือ Lexicomp neonatal</div>
+
+  <div class="tools">
+    <input class="search" id="q" type="search" placeholder="ค้นหาชื่อยา เช่น amox, para, ceftriaxone">
+    <label class="toggle"><input type="checkbox" id="hosOnly" checked> เฉพาะยาในบัญชี รพ.พังงา</label>
+    <div class="tabs" id="cats"></div>
+  </div>
+
+  <h2>คำนวณตามน้ำหนัก <small id="wcount"></small></h2>
+  <div class="list" id="wlist"></div>
+
+  <h2>ขนาดตามอายุ <small>แถวที่ไฮไลต์ตรงกับอายุที่กรอก</small></h2>
+  <div class="list" id="alist"></div>
+
+  <h2 id="refs">เอกสารอ้างอิง</h2>
+  <ol class="reflist" id="reflist"></ol>
+
+  <footer>
+    <div>MK = mg/kg/dose · MKD = mg/kg/day · 1 ช้อนชา = 5 ml · ขนาดสูงสุดต่อครั้ง/ต่อวันถูกจำกัดอัตโนมัติเมื่อมีข้อมูล</div>
+    <div>ขนาดยารวบรวมจากเอกสารอ้างอิงด้านล่าง เพื่อใช้ประกอบการตัดสินใจของบุคลากรทางการแพทย์ ควรทวนสอบกับข้อบ่งใช้ การทำงานของไตและตับ และบัญชียาของโรงพยาบาลก่อนสั่งใช้ รายการยาและรหัสตามบัญชียาโรงพยาบาลพังงา 2569 ยาฉีดชนิดผงแสดงเป็น mg ต่อครั้ง ให้ผสมและเจือจางตามคู่มือยาฉีดของโรงพยาบาล</div>
+  </footer>
+</div>
+
+<script>
+// ================= references =================
+const REFS={
+ 1:'Lexicomp (Lexidrug) Pediatric & Neonatal Dosage Handbook. Wolters Kluwer; online edition.',
+ 2:'Kleinman K, McDaniel L, Molloy M, eds. The Harriet Lane Handbook. 23rd ed. Elsevier; 2023.',
+ 3:'Paediatric Formulary Committee. BNF for Children (BNFC) 2024–2025. BMJ Group & Royal Pharmaceutical Society.',
+ 4:'American Academy of Pediatrics. Red Book: 2024–2027 Report of the Committee on Infectious Diseases. 33rd ed.',
+ 5:'Lieberthal AS, et al. AAP Clinical Practice Guideline: The diagnosis and management of acute otitis media. Pediatrics. 2013;131:e964–99.',
+ 6:'Bradley JS, et al. PIDS/IDSA guideline: Management of community-acquired pneumonia in infants and children older than 3 months. Clin Infect Dis. 2011;53:e25–76.',
+ 7:'Shulman ST, et al. IDSA guideline for group A streptococcal pharyngitis. Clin Infect Dis. 2012;55:e86–102.',
+ 8:'Uyeki TM, et al. IDSA clinical practice guidelines on seasonal influenza. Clin Infect Dis. 2019;68:e1–47; CDC Influenza antiviral medications: summary for clinicians.',
+ 9:'Global Initiative for Asthma (GINA). Global Strategy for Asthma Management and Prevention, 2024 update.',
+ 10:'WHO. The treatment of diarrhoea: a manual for physicians and other senior health workers. 4th rev. 2005.',
+ 11:'Tabbers MM, et al. ESPGHAN/NASPGHAN evaluation and treatment of functional constipation in infants and children. J Pediatr Gastroenterol Nutr. 2014;58:258–74.',
+ 12:'European Medicines Agency. Domperidone: restriction of use (2014) and CMDh/PRAC review of paediatric use (2019).',
+ 13:'US FDA. Use caution when giving cough and cold products to kids (2008, updated); OTC cough/cold labels: do not use under 4 years.',
+ 14:'Muraro A, et al. EAACI guidelines: Anaphylaxis (2021 update). Allergy. 2022;77:357–77.',
+ 15:'Glauser T, et al. AES evidence-based guideline: Treatment of convulsive status epilepticus in children and adults. Epilepsy Curr. 2016;16:48–61; Kapur J, et al. ESETT. N Engl J Med. 2019;381:2103–13.',
+ 16:'Rybak MJ, et al. ASHP/IDSA/PIDS/SIDP consensus: Therapeutic monitoring of vancomycin for serious MRSA infections. Am J Health Syst Pharm. 2020;77:835–64.',
+ 17:'Tunkel AR, et al. IDSA practice guidelines for the management of bacterial meningitis. Clin Infect Dis. 2004;39:1267–84.',
+ 18:'Freedman SB, et al. Oral ondansetron for gastroenteritis in a pediatric emergency department. N Engl J Med. 2006;354:1698–705.',
+ 19:'Baker RD, Greer FR; AAP Committee on Nutrition. Diagnosis and prevention of iron deficiency and iron-deficiency anemia in infants and young children. Pediatrics. 2010;126:1040–50.',
+ 20:'Wagner CL, Greer FR. Prevention of rickets and vitamin D deficiency in infants, children, and adolescents. Pediatrics. 2008;122:1142–52; IOM Dietary Reference Intakes for Calcium and Vitamin D, 2011.',
+ 21:'AFSSAPS (ANSM). Contre-indication des mucolytiques et fluidifiants bronchiques chez l’enfant de moins de 2 ans. 2010.',
+ 22:'US FDA Drug Safety Communication: Boxed warning about serious mental health side effects for montelukast (Singulair). March 2020.',
+ 23:'Gates A, et al. Glucocorticoids for croup in children. Cochrane Database Syst Rev. 2018;8:CD001955.',
+ 24:'Topjian AA, et al. Part 4: Pediatric Basic and Advanced Life Support. 2020 AHA Guidelines for CPR and ECC. Circulation. 2020;142(suppl 2):S469–523.',
+ 25:'WHO. Preventive chemotherapy to control soil-transmitted helminth infections in at-risk population groups. Guideline. 2017.',
+ 26:'Package insert / Summary of Product Characteristics ของผลิตภัณฑ์ (ทะเบียนยาในประเทศไทย).',
+ 27:'Guarino A, et al. ESPGHAN/ESPID evidence-based guidelines for the management of acute gastroenteritis in children in Europe: update 2014. J Pediatr Gastroenterol Nutr. 2014;59:132–52.',
+ 28:'WHO. WHO guidelines for malaria. Geneva: World Health Organization; 2023 update.',
+ 29:'WHO. WHO consolidated guidelines on tuberculosis. Module 5: Management of tuberculosis in children and adolescents. 2022.',
+ 30:'European Medicines Agency. Metoclopramide: restricted dose and duration of use (EMA/13239/2014), 2013.',
+ 31:'Munns CF, et al. Global consensus recommendations on prevention and management of nutritional rickets. J Clin Endocrinol Metab. 2016;101:394–415.',
+ 0:'กลุ่มงานเภสัชกรรม รพ.อ่างทอง. ขนาดยาที่ใช้ในเด็ก (Usual Dosage for Children). ธันวาคม 2552. (ฉบับเดิม)'
+};
+
+// ================= weight-based data =================
+// form: {label, amt, per, vol, clav?, mgOnly?, hos?}  amt (regimen unit) in `per` of `vol`; hos = รหัสยา รพ.พังงา ('Y' = มีในบัญชี ไม่มีรหัส)
+// regimen: {label, basis:'day'|'dose', lo, hi, unit, freqs, maxDose, maxDay, maxDayKg, maxDayFn(age), maxDoseFn(age), fn(w,age)->{lo,hi}, basisText, note, pref}
+const F=(n,label)=>({n,label});
+const OD=[F(1,'วันละ 1 ครั้ง')],BID=[F(2,'ทุก 12 ชม.')],TID=[F(3,'ทุก 8 ชม.')],QID=[F(4,'ทุก 6 ชม.')];
+const ONCE=[F(1,'ครั้งเดียว')];
+const syr=(amt,per,label,hos)=>({label,amt,per,vol:'ml',hos});
+const tab=(amt,label,hos,vol='เม็ด')=>({label,amt,per:1,vol,hos});
+const vial=(label,hos)=>[{label,amt:1,per:1,vol:'mg',mgOnly:true,hos}];
+const fixed=d=>({lo:d,hi:d});
+
+const W=[
+// ---------- fever / pain ----------
+{id:'para',name:'Paracetamol',cat:'fever',forms:[syr(120,5,'Syrup 120 mg/5 ml','0000707'),syr(250,5,'Syrup 250 mg/5 ml'),syr(60,0.6,'Drops 60 mg/0.6 ml'),tab(325,'Tab 325 mg','0000485'),tab(500,'Tab 500 mg','0000708')],
+ reg:[{basis:'dose',lo:10,hi:15,unit:'mg',freqs:[F(4,'ทุก 6 ชม.'),F(5,'ทุก 4–6 ชม. (≤5 ครั้ง/วัน)')],maxDose:1000,maxDayKg:75,maxDay:4000,note:'ให้เมื่อมีไข้หรือปวด'}],
+ refs:[1,2,3],ref:'10–15 mg/kg/dose ทุก 4–6 ชม. prn\nสูงสุด 75 mg/kg/day (ไม่เกิน 4 g/day), ไม่เกิน 1 g/ครั้ง'},
+{id:'ibu',name:'Ibuprofen',cat:'fever',forms:[syr(100,5,'Syrup 100 mg/5 ml','0000346'),tab(400,'Tab 400 mg','Y')],
+ reg:[{basis:'dose',lo:5,hi:10,unit:'mg',freqs:[F(3,'ทุก 8 ชม.'),F(4,'ทุก 6 ชม.')],maxDose:400,maxDayKg:40,maxDay:1200,note:'ให้พร้อมอาหาร หลีกเลี่ยงในภาวะขาดน้ำ ไข้เลือดออก และโรคไต'}],
+ warn:a=>a!=null&&a<6?['danger','ไม่แนะนำในเด็กอายุ < 6 เดือน']:['warn','ห้ามใช้เมื่อสงสัยไข้เลือดออก'],
+ refs:[1,2,3],ref:'≥6 เดือน: 5–10 mg/kg/dose ทุก 6–8 ชม.\nสูงสุด 40 mg/kg/day, 400 mg/dose (OTC ไม่เกิน 1,200 mg/day)'},
+
+// ---------- oral antibiotics ----------
+{id:'amox',name:'Amoxicillin',cat:'abx',forms:[syr(250,5,'Syrup 250 mg/5 ml','0000746'),syr(125,5,'Syrup 125 mg/5 ml'),tab(500,'Cap 500 mg','0000044','แคปซูล')],
+ reg:[{label:'Mild–moderate',basis:'day',lo:25,hi:50,unit:'mg',freqs:[F(3,'ทุก 8 ชม.'),F(2,'ทุก 12 ชม.')],maxDose:500},
+      {label:'High dose: AOM / CAP',basis:'day',lo:80,hi:90,unit:'mg',freqs:[F(2,'ทุก 12 ชม.')],maxDose:2000,maxDay:4000,note:'AOM 10 วัน (< 2 ปี) / 5–7 วัน (≥ 2 ปี) · CAP 5–10 วัน'},
+      {label:'GAS pharyngitis',basis:'day',lo:50,hi:50,unit:'mg',freqs:[F(1,'วันละ 1 ครั้ง'),F(2,'ทุก 12 ชม.')],maxDay:1000,note:'× 10 วัน'}],
+ warn:a=>a!=null&&a<3?['warn','อายุ < 3 เดือน: ไม่เกิน 30 mg/kg/day แบ่งทุก 12 ชม.']:null,
+ refs:[1,4,5,6,7],ref:'Mild–moderate: 25–50 mg/kg/day ÷ q8–12h (max 500 mg/dose)\nAOM, CAP: 80–90 mg/kg/day ÷ q12h (max 2 g/dose, 4 g/day)\nGAS pharyngitis: 50 mg/kg OD (max 1 g) หรือ 25 mg/kg BID (max 500 mg) × 10 วัน\nฉบับเดิม (2552): 20–50 mg/kg/day ÷ q8h'},
+{id:'aug',name:'Amoxicillin–clavulanate',sub:'Co-amoxiclav',cat:'abx',
+ forms:[{label:'Syrup 457 mg/5 ml (400+57, 7:1)',amt:400,per:5,vol:'ml',clav:57,hos:'0001334'},{label:'Syrup 228.5 mg/5 ml (7:1)',amt:200,per:5,vol:'ml',clav:28.5},{label:'ES 642.9 mg/5 ml (14:1)',amt:600,per:5,vol:'ml',clav:42.9},{label:'Tab 1 g (875+125)',amt:875,per:1,vol:'เม็ด',clav:125,hos:'0001054'}],
+ reg:[{label:'Standard (7:1)',basis:'day',lo:25,hi:45,unit:'mg amox',freqs:BID,maxDose:875},
+      {label:'High dose AOM',pref:'ES',basis:'day',lo:90,hi:90,unit:'mg amox',freqs:BID,maxDose:2000,note:'ควรใช้สูตร ES 14:1 (ไม่มีใน รพ.) หากใช้สูตร 7:1 ให้ amoxicillin เสริม'}],
+ refs:[1,4,5],ref:'คิดขนาดตาม amoxicillin\nStandard: 25–45 mg/kg/day ÷ q12h (สูตร 7:1)\nHigh dose: 90 mg/kg/day ÷ q12h ด้วยสูตร ES (14:1)\nClavulanate ไม่ควรเกิน 10 mg/kg/day (ท้องเสีย)'},
+{id:'azi',name:'Azithromycin',cat:'abx',forms:[syr(200,5,'Susp 200 mg/5 ml','0000751'),tab(250,'Cap 250 mg','0001662','แคปซูล')],
+ reg:[{label:'AOM / Sinusitis',basis:'dose',lo:10,hi:10,unit:'mg',freqs:OD,maxDose:500,note:'วันละครั้ง × 3 วัน'},
+      {label:'CAP วันที่ 1',basis:'dose',lo:10,hi:10,unit:'mg',freqs:OD,maxDose:500,note:'วันที่ 1 จากนั้น 5 mg/kg วันที่ 2–5'},
+      {label:'CAP วันที่ 2–5',basis:'dose',lo:5,hi:5,unit:'mg',freqs:OD,maxDose:250,note:'วันที่ 2–5'},
+      {label:'GAS pharyngitis',basis:'dose',lo:12,hi:12,unit:'mg',freqs:OD,maxDose:500,note:'× 5 วัน (กรณีแพ้ penicillin)'},
+      {label:'Pertussis < 6 เดือน',basis:'dose',lo:10,hi:10,unit:'mg',freqs:OD,note:'× 5 วัน'}],
+ warn:a=>a!=null&&a<1?['warn','ทารก < 1 เดือน: เสี่ยง IHPS ติดตามอาการ (ใช้ได้ใน pertussis)']:null,
+ refs:[1,4,5,6,7],ref:'AOM: 10 mg/kg OD × 3 วัน\nCAP: 10 mg/kg (max 500) day 1 แล้ว 5 mg/kg (max 250) day 2–5\nGAS: 12 mg/kg OD (max 500) × 5 วัน\nPertussis < 6 เดือน: 10 mg/kg OD × 5 วัน'},
+{id:'clari',name:'Clarithromycin',cat:'abx',forms:[syr(125,5,'Susp 125 mg/5 ml'),tab(500,'Tab 500 mg','0001055')],
+ reg:[{basis:'day',lo:15,hi:15,unit:'mg',freqs:BID,maxDose:500}],
+ refs:[1,2],ref:'15 mg/kg/day ÷ q12h (max 500 mg/dose)\nระวังยาตีกัน (CYP3A4)'},
+{id:'roxi',name:'Roxithromycin',cat:'abx',forms:[tab(50,'Tab 50 mg'),tab(150,'Tab 150 mg')],
+ reg:[{basis:'day',lo:5,hi:8,unit:'mg',freqs:BID,maxDose:150}],
+ refs:[26,0],ref:'5–8 mg/kg/day ÷ วันละ 2 ครั้ง ก่อนอาหาร (max 150 mg/dose)'},
+{id:'ery',name:'Erythromycin ethylsuccinate',cat:'abx',forms:[syr(125,5,'Susp 125 mg/5 ml'),syr(200,5,'Susp 200 mg/5 ml')],
+ reg:[{basis:'day',lo:30,hi:50,unit:'mg',freqs:[F(4,'ทุก 6 ชม.'),F(3,'ทุก 8 ชม.')],maxDay:4000}],
+ refs:[1,4,0],ref:'30–50 mg/kg/day ÷ q6–8h (max 4 g/day)'},
+{id:'cefaclor',name:'Cefaclor',cat:'abx',forms:[syr(125,5,'Susp 125 mg/5 ml')],
+ reg:[{basis:'day',lo:20,hi:40,unit:'mg',freqs:[F(3,'ทุก 8 ชม.'),F(2,'ทุก 12 ชม.')],maxDay:1000}],
+ refs:[1,0],ref:'> 1 เดือน: 20–40 mg/kg/day ÷ q8–12h (max 1 g/day)'},
+{id:'ceph',name:'Cephalexin',cat:'abx',forms:[syr(250,5,'Syrup 250 mg/5 ml','0001404'),syr(125,5,'Syrup 125 mg/5 ml'),tab(500,'Cap 500 mg',undefined,'แคปซูล')],
+ reg:[{label:'Mild–moderate',basis:'day',lo:25,hi:50,unit:'mg',freqs:[F(4,'ทุก 6 ชม.'),F(3,'ทุก 8 ชม.'),F(2,'ทุก 12 ชม.')],maxDose:500},
+      {label:'Severe / bone & joint',basis:'day',lo:75,hi:100,unit:'mg',freqs:[F(4,'ทุก 6 ชม.'),F(3,'ทุก 8 ชม.')],maxDay:4000},
+      {label:'GAS pharyngitis',basis:'dose',lo:20,hi:20,unit:'mg',freqs:BID,maxDose:500,note:'× 10 วัน'}],
+ refs:[1,4,7,0],ref:'25–50 mg/kg/day ÷ q6–12h\nSevere: 75–100 mg/kg/day ÷ q6–8h (max 4 g/day)\nGAS: 20 mg/kg/dose BID (max 500 mg) × 10 วัน'},
+{id:'cefdinir',name:'Cefdinir',cat:'abx',forms:[syr(125,5,'Susp 125 mg/5 ml')],
+ reg:[{label:'7 MK ทุก 12 ชม.',basis:'dose',lo:7,hi:7,unit:'mg',freqs:BID,maxDose:300},{label:'14 MK วันละครั้ง',basis:'dose',lo:14,hi:14,unit:'mg',freqs:OD,maxDose:600}],
+ refs:[1,5],ref:'≥ 6 เดือน: 14 mg/kg/day ÷ q12–24h (max 600 mg/day)'},
+{id:'cefixime',name:'Cefixime',cat:'abx',forms:[syr(100,5,'Susp 100 mg/5 ml','0001061'),tab(100,'Cap 100 mg','0001060','แคปซูล')],
+ reg:[{basis:'day',lo:8,hi:8,unit:'mg',freqs:[F(1,'วันละ 1 ครั้ง'),F(2,'ทุก 12 ชม.')],maxDay:400}],
+ refs:[1,4],ref:'≥ 6 เดือน: 8 mg/kg/day OD หรือ ÷ q12h (max 400 mg/day)'},
+{id:'cefurox',name:'Cefuroxime axetil',cat:'abx',forms:[syr(125,5,'Susp 125 mg/5 ml')],
+ reg:[{label:'AOM / Sinusitis',basis:'day',lo:30,hi:30,unit:'mg',freqs:BID,maxDay:1000},{label:'Pharyngitis',basis:'day',lo:20,hi:20,unit:'mg',freqs:BID,maxDay:500}],
+ refs:[1,5],ref:'AOM, sinusitis: 30 mg/kg/day ÷ q12h (max 1 g/day)\nPharyngitis: 20 mg/kg/day ÷ q12h (max 500 mg/day)'},
+{id:'cotri',name:'Cotrimoxazole',sub:'คิดตาม trimethoprim',cat:'abx',forms:[{label:'Susp SMX 200 + TMP 40 mg/5 ml',amt:40,per:5,vol:'ml',hos:'0000616'},{label:'Tab SMX 400 + TMP 80 mg',amt:80,per:1,vol:'เม็ด',hos:'0000768'}],
+ reg:[{label:'Treatment / UTI',basis:'day',lo:8,hi:12,unit:'mg TMP',freqs:BID,maxDose:160},
+      {label:'UTI prophylaxis',basis:'dose',lo:2,hi:2,unit:'mg TMP',freqs:[F(1,'วันละครั้งก่อนนอน')]},
+      {label:'PJP prophylaxis',basis:'day',lo:5,hi:5,unit:'mg TMP',freqs:BID,maxDose:160,note:'3 วันต่อสัปดาห์'}],
+ warn:a=>a!=null&&a<2?['danger','ห้ามใช้ในอายุ < 2 เดือน (kernicterus)']:null,
+ refs:[1,4,0],ref:'8–12 mg TMP/kg/day ÷ q12h (max 160 mg TMP/dose)\nUTI prophylaxis: 2 mg TMP/kg OD\nPJP prophylaxis: 5 mg TMP/kg/day ÷ q12h 3 วัน/สัปดาห์'},
+{id:'diclox',name:'Dicloxacillin',cat:'abx',forms:[tab(250,'Cap 250 mg','0001076','แคปซูล'),syr(62.5,5,'Susp 62.5 mg/5 ml')],
+ reg:[{label:'Mild–moderate',basis:'day',lo:12.5,hi:25,unit:'mg',freqs:[F(4,'ทุก 6 ชม. ก่อนอาหาร')],adult:{wt:40,lo:125,hi:250}},
+      {label:'Severe',basis:'day',lo:25,hi:50,unit:'mg',freqs:[F(4,'ทุก 6 ชม. ก่อนอาหาร')],adult:{wt:40,lo:250,hi:500}}],
+ warn:()=>['warn','รพ.มีเฉพาะแคปซูล 250 mg เด็กเล็กพิจารณา cephalexin syrup แทน'],
+ refs:[1,0],ref:'< 40 kg: 12.5–25 mg/kg/day ÷ q6h, severe 25–50 mg/kg/day\n≥ 40 kg: 125–250 mg q6h, severe 250–500 mg q6h'},
+{id:'penv',name:'Penicillin V',cat:'abx',forms:[tab(250,'Tab 250 mg (400,000 u)','0000507'),syr(125,5,'Susp 125 mg/5 ml')],
+ reg:[{label:'General',basis:'day',lo:25,hi:50,unit:'mg',freqs:[F(4,'ทุก 6 ชม.'),F(3,'ทุก 8 ชม.')],maxDay:3000},
+      {label:'GAS pharyngitis',basis:'dose',unit:'mg',freqs:[F(2,'ทุก 12 ชม.'),F(3,'ทุก 8 ชม.')],fn:w=>fixed(w<=27?250:500),basisText:'≤ 27 kg: 250 mg · > 27 kg: 500 mg',note:'× 10 วัน'}],
+ refs:[1,7,0],ref:'25–50 mg/kg/day ÷ q6–8h (max 3 g/day)\nGAS: ≤ 27 kg 250 mg BID–TID; > 27 kg 500 mg BID–TID × 10 วัน'},
+{id:'doxy',name:'Doxycycline',cat:'abx',forms:[tab(100,'Cap 100 mg','0000227','แคปซูล')],
+ reg:[{basis:'dose',lo:2.2,hi:2.2,unit:'mg',freqs:BID,maxDose:100,note:'Scrub typhus / rickettsia / leptospirosis'}],
+ warn:a=>a!=null&&a<96?['warn','อายุ < 8 ปี: ใช้ได้ระยะสั้น ≤ 21 วัน (AAP Red Book)']:null,
+ refs:[1,4],ref:'2.2 mg/kg/dose ทุก 12 ชม. (max 100 mg/dose)\nAAP Red Book: ใช้ระยะสั้น ≤ 21 วันได้ทุกอายุ'},
+{id:'cipro',name:'Ciprofloxacin',cat:'abx',forms:[tab(500,'Tab 500 mg','0001126'),tab(250,'Tab 250 mg')],
+ reg:[{basis:'dose',lo:10,hi:20,unit:'mg',freqs:BID,maxDose:750}],
+ warn:()=>['warn','สงวนไว้เมื่อไม่มีทางเลือกอื่น ระวังผลต่อข้อและเอ็น'],
+ refs:[1,4],ref:'10–20 mg/kg/dose ทุก 12 ชม. (max 750 mg/dose)'},
+{id:'metro',name:'Metronidazole',cat:'abx',forms:[tab(400,'Tab 400 mg','0000428'),syr(200,5,'Susp 200 mg/5 ml'),tab(200,'Tab 200 mg')],
+ reg:[{label:'Amebiasis',basis:'day',lo:35,hi:50,unit:'mg',freqs:TID,maxDose:750,note:'× 7–10 วัน'},
+      {label:'Giardiasis',basis:'day',lo:15,hi:15,unit:'mg',freqs:TID,maxDose:250,note:'× 5–7 วัน'},
+      {label:'C. difficile / anaerobe',basis:'day',lo:30,hi:30,unit:'mg',freqs:[F(3,'ทุก 8 ชม.'),F(4,'ทุก 6 ชม.')],maxDose:500}],
+ refs:[1,2,4],ref:'Amebiasis: 35–50 mg/kg/day ÷ TID (max 750 mg/dose)\nGiardiasis: 15 mg/kg/day ÷ TID (max 250 mg/dose)\nAnaerobe / C. difficile: 30 mg/kg/day ÷ q6–8h (max 500 mg/dose)'},
+{id:'clindapo',name:'Clindamycin (oral)',cat:'abx',forms:[tab(300,'Cap 300 mg','0001019','แคปซูล')],
+ reg:[{basis:'day',lo:10,hi:25,unit:'mg',freqs:[F(3,'ทุก 8 ชม.'),F(4,'ทุก 6 ชม.')],maxDose:450}],
+ refs:[1,4],ref:'10–25 mg/kg/day ÷ q6–8h (max 450 mg/dose)'},
+
+// ---------- TB / malaria / antiparasitic / antiviral / antifungal ----------
+{id:'inh',name:'Isoniazid',cat:'anti',forms:[tab(100,'Tab 100 mg','0000775')],
+ reg:[{basis:'day',lo:7,hi:15,unit:'mg',freqs:OD,maxDay:300,note:'แนะนำ 10 mg/kg/day'}],refs:[29],ref:'10 (7–15) mg/kg/day OD (max 300 mg) ให้ pyridoxine ร่วมเมื่อมีความเสี่ยง'},
+{id:'rif',name:'Rifampicin',cat:'anti',forms:[tab(300,'Cap 300 mg','0000564','แคปซูล'),tab(450,'Cap 450 mg','0000782','แคปซูล')],
+ reg:[{basis:'day',lo:10,hi:20,unit:'mg',freqs:OD,maxDay:600,note:'แนะนำ 15 mg/kg/day ก่อนอาหาร'}],refs:[29],ref:'15 (10–20) mg/kg/day OD (max 600 mg)'},
+{id:'pza',name:'Pyrazinamide',cat:'anti',forms:[tab(500,'Tab 500 mg','0000781')],
+ reg:[{basis:'day',lo:30,hi:40,unit:'mg',freqs:OD,maxDay:2000,note:'แนะนำ 35 mg/kg/day'}],refs:[29],ref:'35 (30–40) mg/kg/day OD (max 2 g)'},
+{id:'emb',name:'Ethambutol',cat:'anti',forms:[tab(400,'Tab 400 mg','0000240'),tab(500,'Tab 500 mg','Y')],
+ reg:[{basis:'day',lo:15,hi:25,unit:'mg',freqs:OD,maxDay:1600,note:'แนะนำ 20 mg/kg/day'}],refs:[29],ref:'20 (15–25) mg/kg/day OD'},
+{id:'osel',name:'Oseltamivir',cat:'anti',forms:[tab(75,'Cap 75 mg (เปิดแคปซูลแบ่งได้)','0001715','แคปซูล'),syr(6,1,'Susp 6 mg/ml')],
+ reg:[{label:'Treatment',basis:'dose',unit:'mg',freqs:BID,fn:(w,a)=>oselt(w,a),basisText:'< 1 ปี 3 mg/kg · ≤15 kg 30 · 15–23 kg 45 · 23–40 kg 60 · > 40 kg 75 mg',note:'× 5 วัน เริ่มเร็วที่สุด'},
+      {label:'Prophylaxis',basis:'dose',unit:'mg',freqs:OD,fn:(w,a)=>oselt(w,a),basisText:'ขนาดเท่ากับการรักษา วันละครั้ง (≥ 3 เดือน)',note:'× 7 วันหลังสัมผัส'}],
+ warn:a=>a==null?['warn','กรอกอายุ: อายุ < 1 ปี ใช้ 3 mg/kg/dose']:null,
+ refs:[1,8],ref:'< 1 ปี: 3 mg/kg/dose BID\n≥ 1 ปี: ≤ 15 kg 30 mg, > 15–23 kg 45 mg, > 23–40 kg 60 mg, > 40 kg 75 mg BID × 5 วัน'},
+{id:'acv',name:'Acyclovir (oral)',cat:'anti',forms:[tab(800,'Tab 800 mg','0001657'),syr(200,5,'Susp 200 mg/5 ml'),tab(400,'Tab 400 mg')],
+ reg:[{label:'Varicella',basis:'dose',lo:20,hi:20,unit:'mg',freqs:QID,maxDose:800,note:'× 5 วัน เริ่มภายใน 24 ชม.'},
+      {label:'HSV gingivostomatitis',basis:'dose',lo:15,hi:15,unit:'mg',freqs:[F(5,'วันละ 5 ครั้ง')],maxDose:200,note:'× 7 วัน'}],
+ refs:[1,4],ref:'Varicella: 20 mg/kg/dose QID (max 800 mg/dose) × 5 วัน\nHSV gingivostomatitis: 15 mg/kg/dose 5 ครั้ง/วัน (max 200 mg/dose) × 7 วัน'},
+{id:'fluco',name:'Fluconazole (oral)',cat:'anti',forms:[tab(200,'Cap 200 mg','0001693','แคปซูล'),syr(50,5,'Susp 50 mg/5 ml')],
+ reg:[{label:'Oral candidiasis วันแรก',basis:'dose',lo:6,hi:6,unit:'mg',freqs:OD,maxDose:200},
+      {label:'Oral candidiasis ต่อเนื่อง',basis:'dose',lo:3,hi:3,unit:'mg',freqs:OD,maxDose:100,note:'× 7–14 วัน'}],
+ refs:[1,2],ref:'6 mg/kg (max 200) วันแรก แล้ว 3 mg/kg (max 100) OD × 7–14 วัน'},
+{id:'griseo',name:'Griseofulvin (microsize)',cat:'anti',forms:[tab(500,'Tab 500 mg','0000312')],
+ reg:[{basis:'day',lo:20,hi:25,unit:'mg',freqs:OD,maxDay:1000,note:'Tinea capitis × 6–8 สัปดาห์ ให้พร้อมอาหารมัน'}],refs:[4,1],ref:'20–25 mg/kg/day OD (max 1 g)'},
+{id:'iver',name:'Ivermectin',cat:'anti',forms:[{label:'Tab 6 mg',amt:6000,per:1,vol:'เม็ด',hos:'Y'}],
+ reg:[{basis:'dose',lo:200,hi:200,unit:'mcg',freqs:ONCE,note:'Scabies: ซ้ำใน 7–14 วัน · Strongyloides: OD × 1–2 วัน'}],
+ warn:(a,w)=>w<15?['danger','ไม่แนะนำในน้ำหนัก < 15 kg']:null,refs:[4,1],ref:'200 mcg/kg ครั้งเดียว (≥ 15 kg)'},
+{id:'prima',name:'Primaquine',sub:'คิดตาม base',cat:'anti',forms:[tab(15,'Tab 15 mg base','Y')],
+ reg:[{label:'P. falciparum (single)',basis:'dose',lo:0.25,hi:0.25,unit:'mg',freqs:ONCE},{label:'P. vivax radical cure',basis:'day',lo:0.25,hi:0.5,unit:'mg',freqs:OD,maxDay:30,note:'× 14 วัน ตรวจ G6PD ก่อน'}],
+ warn:a=>a!=null&&a<6?['danger','ไม่ใช้ในทารก < 6 เดือน']:['warn','ตรวจ G6PD ก่อนให้ radical cure'],refs:[28],ref:'Falciparum: 0.25 mg/kg ครั้งเดียว\nVivax: 0.25–0.5 mg/kg/day × 14 วัน (ปกติ G6PD)'},
+
+// ---------- allergy ----------
+{id:'cpm',name:'Chlorpheniramine',sub:'CPM',cat:'allergy',forms:[syr(2,5,'Syrup 2 mg/5 ml','0000691'),tab(4,'Tab 4 mg','0000140')],
+ reg:[{basis:'day',lo:0.35,hi:0.35,unit:'mg',freqs:[F(3,'ทุก 8 ชม.'),F(4,'ทุก 6 ชม.')],maxDayFn:a=>a==null?null:a<72?6:a<144?12:24}],
+ warn:a=>a!=null&&a<24?['danger','ไม่ควรใช้ในอายุ < 2 ปี']:null,
+ refs:[1,13,0],ref:'0.35 mg/kg/day ÷ q4–6h\n2–5 ปี max 6 mg/day · 6–11 ปี max 12 mg/day · ≥ 12 ปี max 24 mg/day'},
+{id:'dph',name:'Diphenhydramine',cat:'allergy',forms:[syr(12.5,5,'Syrup 12.5 mg/5 ml')],
+ reg:[{basis:'day',lo:5,hi:5,unit:'mg',freqs:[F(3,'ทุก 8 ชม.'),F(4,'ทุก 6 ชม.')],maxDay:300}],
+ warn:a=>a!=null&&a<24?['danger','ไม่ควรใช้ในอายุ < 2 ปี']:null,refs:[1,13,0],ref:'5 mg/kg/day ÷ q6–8h (max 300 mg/day)'},
+{id:'hydrox',name:'Hydroxyzine',cat:'allergy',forms:[syr(10,5,'Syrup 10 mg/5 ml','0000341'),tab(10,'Tab 10 mg','0000696')],
+ reg:[{basis:'day',lo:2,hi:2,unit:'mg',freqs:[F(3,'ทุก 8 ชม.'),F(4,'ทุก 6 ชม.')],maxDayFn:a=>a==null?null:a<72?50:100}],
+ refs:[1,0],ref:'2 mg/kg/day ÷ q6–8h\n< 6 ปี max 50 mg/day; ≥ 6 ปี max 100 mg/day'},
+{id:'keto',name:'Ketotifen',cat:'allergy',forms:[syr(1,5,'Syrup 1 mg/5 ml')],
+ reg:[{basis:'dose',unit:'mg',freqs:BID,fn:(w,a)=>a!=null&&a>=36?fixed(1):fixed(Math.min(.05*w,1)),basisText:'6 เดือน–3 ปี 0.05 mg/kg/dose · ≥ 3 ปี 1 mg'}],
+ refs:[26,3],ref:'6 เดือน–3 ปี: 0.05 mg/kg BID\n≥ 3 ปี: 1 mg BID'},
+{id:'dimen',name:'Dimenhydrinate',cat:'allergy',forms:[tab(50,'Tab 50 mg','0000214'),syr(50,1,'Inj 50 mg/ml','0000719')],
+ reg:[{basis:'dose',lo:1.25,hi:1.25,unit:'mg',freqs:[F(4,'ทุก 6 ชม.'),F(3,'ทุก 8 ชม.')],maxDose:50,maxDayFn:a=>a==null?null:a<72?75:a<144?150:300}],
+ warn:a=>a!=null&&a<24?['danger','ไม่แนะนำในอายุ < 2 ปี']:null,refs:[1],ref:'1.25 mg/kg/dose q6h PO/IM/IV\n2–5 ปี max 75 mg/day · 6–12 ปี max 150 mg/day'},
+
+// ---------- cold / cough ----------
+{id:'pse',name:'Pseudoephedrine',cat:'cold',forms:[tab(60,'Tab 60 mg','0000700'),syr(30,5,'Syrup 30 mg/5 ml')],
+ reg:[{basis:'day',lo:4,hi:4,unit:'mg',freqs:[F(4,'ทุก 6 ชม.'),F(3,'ทุก 8 ชม.')],maxDayFn:a=>a==null?null:a<72?60:a<144?120:240}],
+ warn:a=>a!=null&&a<24?['danger','ไม่ควรใช้ในอายุ < 2 ปี']:a!=null&&a<48?['warn','FDA: ไม่แนะนำยาแก้หวัด OTC ในอายุ < 4 ปี']:null,
+ refs:[1,13,0],ref:'4 mg/kg/day ÷ q6h\n2–5 ปี max 60 mg/day · 6–11 ปี max 120 mg/day · ≥ 12 ปี max 240 mg/day'},
+{id:'actifed',name:'Actifed',sub:'Pseudoephedrine 30 + Triprolidine 1.25 mg/5 ml',cat:'cold',forms:[{label:'Syrup (คิดตาม pseudoephedrine)',amt:30,per:5,vol:'ml'}],
+ reg:[{basis:'day',lo:4,hi:4,unit:'mg PSE',freqs:[F(3,'ทุก 8 ชม.'),F(4,'ทุก 6 ชม.')],maxDayFn:a=>a==null?null:a<72?60:a<144?120:240}],
+ warn:(a,w)=>(a!=null&&a<24)||w<12?['danger','< 2 ปี หรือ น้ำหนัก < 12 kg: ไม่ควรใช้']:null,refs:[1,13,0],ref:'คิดตาม pseudoephedrine 4 mg/kg/day ÷ 3–4'},
+{id:'ambroxol',name:'Ambroxol',cat:'cold',forms:[syr(15,5,'Syrup 15 mg/5 ml')],
+ reg:[{basis:'day',lo:1.2,hi:1.6,unit:'mg',freqs:[F(2,'ทุก 12 ชม.'),F(3,'ทุก 8 ชม.')],maxDay:90}],
+ warn:a=>a!=null&&a<24?['danger','ไม่แนะนำยาละลายเสมหะในอายุ < 2 ปี']:null,refs:[26,21],ref:'1.2–1.6 mg/kg/day ÷ 2–3 ครั้ง'},
+{id:'nac',name:'Acetylcysteine (mucolytic)',cat:'cold',forms:[{label:'Powder 200 mg/ซอง',amt:200,per:1,vol:'ซอง',hos:'0001001'},{label:'Powder 100 mg/ซอง',amt:100,per:1,vol:'ซอง'}],
+ reg:[{basis:'dose',unit:'mg',freqs:[F(2,'วันละ 2 ครั้ง'),F(3,'วันละ 3 ครั้ง')],fn:(w,a)=>fixed(a!=null&&a>=72?200:100),basisText:'2–5 ปี 100 mg · ≥ 6 ปี 200 mg'}],
+ warn:a=>a!=null&&a<24?['danger','ห้ามใช้ยาละลายเสมหะในอายุ < 2 ปี']:a==null?['warn','กรอกอายุเพื่อเลือกขนาด']:null,
+ refs:[26,21,0],ref:'2–5 ปี: 100 mg BID–TID\n≥ 6 ปี: 200 mg BID–TID\n< 2 ปี: ห้ามใช้'},
+
+// ---------- respiratory ----------
+{id:'salbneb',name:'Salbutamol (nebulized)',cat:'resp',forms:[syr(5,1,'Respirator soln 0.5% (5 mg/ml)','0000577'),syr(2.5,2.5,'Nebule 2.5 mg/2.5 ml')],
+ reg:[{basis:'dose',unit:'mg',freqs:[F(3,'ทุก 20 นาที × 3 (acute)'),F(6,'ทุก 4 ชม.')],fn:w=>fixed(Math.min(5,Math.max(2.5,.15*w))),basisText:'0.15 mg/kg (min 2.5, max 5 mg)',note:'เจือจางด้วย NSS ให้ได้ปริมาตร 3–4 ml'}],
+ refs:[1,9],ref:'Acute asthma: 0.15 mg/kg/dose (min 2.5 mg, max 5 mg) ทุก 20 นาที × 3 แล้วทุก 1–4 ชม.'},
+{id:'berodual',name:'Ipratropium + Fenoterol (nebulized)',sub:'Berodual',cat:'resp',forms:[{label:'Soln ipratropium 0.25 + fenoterol 0.5 mg/ml',amt:1,per:1,vol:'ml',hos:'0000697'}],
+ reg:[{basis:'dose',unit:'ml',freqs:[F(1,'ซ้ำได้ตามอาการ (ห่าง ≥ 4 ชม.)')],fn:(w,a)=>(a!=null&&a>=72)||w>=22?{lo:0.5,hi:1}:fixed(Math.min(0.1*w,0.5)),basisText:'< 6 ปี (< 22 kg) 0.1 ml/kg (max 0.5 ml) · 6–12 ปี 0.5–1 ml',note:'เจือจางด้วย NSS ให้ได้ 3–4 ml'}],
+ refs:[26,9],ref:'< 6 ปี (< 22 kg): 0.1 ml/kg (max 0.5 ml)\n6–12 ปี: 0.5–1 ml (รุนแรงได้ถึง 2 ml)'},
+{id:'salbpo',name:'Salbutamol (oral)',cat:'resp',forms:[syr(2,5,'Syrup 2 mg/5 ml','0000702'),tab(2,'Tab 2 mg')],
+ reg:[{basis:'dose',lo:0.1,hi:0.2,unit:'mg',freqs:[F(3,'ทุก 8 ชม.'),F(4,'ทุก 6 ชม.')],maxDose:4,maxDayFn:a=>a==null?null:a<72?12:24}],
+ warn:()=>['warn','GINA แนะนำยาพ่นมากกว่ายากิน'],refs:[1,9,0],ref:'2–6 ปี: 0.1–0.2 mg/kg/dose TID (max 4 mg/dose, 12 mg/day)\n6–12 ปี: 2 mg TID–QID (max 24 mg/day)'},
+{id:'procat',name:'Procaterol',cat:'resp',forms:[syr(5,1,'Syrup 5 mcg/ml','0001323'),tab(50,'Tab 50 mcg','0002058')],
+ reg:[{basis:'dose',lo:1.25,hi:1.25,unit:'mcg',freqs:BID,maxDose:50}],refs:[26,0],ref:'1.25 mcg/kg/dose ทุก 12 ชม.\n≥ 6 ปี: 25 mcg BID; ผู้ใหญ่ 50 mcg'},
+{id:'pred',name:'Prednisolone',cat:'resp',forms:[tab(5,'Tab 5 mg','0000832'),syr(15,5,'Syrup 15 mg/5 ml')],
+ reg:[{label:'Asthma exacerbation',basis:'day',lo:1,hi:2,unit:'mg',freqs:[F(1,'วันละครั้งตอนเช้า')],maxDayFn:a=>a==null?40:a<24?20:a<72?30:40,note:'× 3–5 วัน'}],
+ refs:[9,1],ref:'1–2 mg/kg/day × 3–5 วัน\nmax: < 2 ปี 20 mg, 2–5 ปี 30 mg, ≥ 6 ปี 40 mg/day (GINA)'},
+{id:'dexa',name:'Dexamethasone',cat:'resp',forms:[syr(4,1,'Inj 4 mg/ml (ให้ทางปากได้)','0000190'),tab(4,'Tab 4 mg','Y')],
+ reg:[{label:'Croup',basis:'dose',lo:0.15,hi:0.6,unit:'mg',freqs:ONCE,maxDose:16,note:'0.15 mg/kg พอสำหรับ mild–moderate'},
+      {label:'Asthma',basis:'dose',lo:0.6,hi:0.6,unit:'mg',freqs:[F(1,'วันละครั้ง × 1–2 วัน')],maxDose:16}],
+ refs:[1,23,9],ref:'Croup: 0.15–0.6 mg/kg PO/IM/IV ครั้งเดียว (max 16 mg)\nAsthma: 0.6 mg/kg (max 16 mg) OD × 1–2 วัน'},
+{id:'terbu',name:'Terbutaline SC',cat:'resp',forms:[syr(0.5,1,'Inj 0.5 mg/ml','0000704')],
+ reg:[{basis:'dose',lo:0.01,hi:0.01,unit:'mg',freqs:[F(1,'ทุก 20 นาที × 3')],maxDose:0.4}],refs:[1],ref:'Severe asthma: 0.01 mg/kg SC (max 0.4 mg) ทุก 20 นาที × 3'},
+
+// ---------- GI ----------
+{id:'ors',name:'ORS',sub:'WHO Plan B: some dehydration',cat:'gi',forms:[{label:'ORS (Minera) ml',amt:1,per:1,vol:'ml',hos:'0000643'}],
+ reg:[{basis:'dose',lo:75,hi:75,unit:'ml',freqs:[F(1,'ใน 4 ชม.')],note:'ป้อนทีละน้อยบ่อยๆ แล้วประเมินซ้ำ'}],refs:[10],ref:'Plan B: 75 ml/kg ใน 4 ชม.'},
+{id:'onda',name:'Ondansetron',cat:'gi',forms:[tab(4,'Tab 4 mg','0001724'),syr(2,1,'Inj 4 mg/2 ml','0001285'),syr(4,5,'Syrup 4 mg/5 ml')],
+ reg:[{label:'Gastroenteritis (PO)',basis:'dose',unit:'mg',freqs:ONCE,fn:w=>w<8?fixed(.15*w):fixed(w<=15?2:w<=30?4:8),basisText:'8–15 kg 2 mg · 15–30 kg 4 mg · > 30 kg 8 mg (< 8 kg 0.15 mg/kg)'},
+      {label:'IV / PO 0.15 mg/kg',basis:'dose',lo:0.15,hi:0.15,unit:'mg',freqs:[F(3,'ทุก 8 ชม.')],maxDose:4}],
+ warn:a=>a!=null&&a<6?['danger','ข้อมูลในอายุ < 6 เดือน จำกัด']:null,refs:[18,1],ref:'Gastroenteritis ≥ 6 เดือน: 8–15 kg 2 mg, 15–30 kg 4 mg, > 30 kg 8 mg\n0.15 mg/kg/dose (max 4 mg) ระวัง QT prolongation'},
+{id:'dom',name:'Domperidone',cat:'gi',forms:[syr(1,1,'Susp 1 mg/ml','0000633'),tab(10,'Tab 10 mg','0000222')],
+ reg:[{basis:'dose',lo:0.25,hi:0.25,unit:'mg',freqs:[F(3,'สูงสุดวันละ 3 ครั้ง')],maxDose:10,note:'ไม่เกิน 7 วัน'}],
+ warn:(a,w)=>(a!=null&&a<144)||w<35?['warn','EMA 2019: ไม่แนะนำรักษาคลื่นไส้อาเจียนในเด็ก < 12 ปี หรือ < 35 kg']:null,
+ refs:[12,3,0],ref:'0.25 mg/kg/dose สูงสุด TID (max 0.75 mg/kg/day, 30 mg/day) ≤ 7 วัน'},
+{id:'metoclo',name:'Metoclopramide IV',cat:'gi',forms:[syr(5,1,'Inj 5 mg/ml','0000640')],
+ reg:[{basis:'dose',lo:0.1,hi:0.15,unit:'mg',freqs:[F(3,'สูงสุดวันละ 3 ครั้ง')],maxDose:10,note:'≤ 5 วัน (second line)'}],
+ warn:a=>a!=null&&a<12?['danger','ห้ามใช้ในอายุ < 1 ปี (extrapyramidal)']:['warn','ใช้เป็นทางเลือกที่สอง ระวัง EPS'],refs:[30,3],ref:'1–18 ปี: 0.1–0.15 mg/kg สูงสุด TID (max 0.5 mg/kg/day, 10 mg/dose) ≤ 5 วัน'},
+{id:'ome',name:'Omeprazole',cat:'gi',forms:[{label:'Cap 20 mg',amt:1,per:1,vol:'mg',mgOnly:true,hos:'0000642'}],
+ reg:[{basis:'dose',unit:'mg',freqs:[F(1,'วันละครั้งก่อนอาหารเช้า')],fn:w=>w<5?fixed(w):fixed(w<10?5:w<20?10:20),basisText:'5–< 10 kg 5 mg · 10–< 20 kg 10 mg · ≥ 20 kg 20 mg',note:'แคปซูลเปิดผสมน้ำผลไม้ได้'}],
+ refs:[26,1,3],ref:'GERD ≥ 1 ปี: 5–< 10 kg 5 mg, 10–< 20 kg 10 mg, ≥ 20 kg 20 mg OD'},
+{id:'omeiv',name:'Omeprazole IV',cat:'gi',forms:vial('Inj 40 mg/vial','0000476'),
+ reg:[{basis:'dose',lo:1,hi:1,unit:'mg',freqs:[F(1,'วันละครั้ง'),F(2,'ทุก 12 ชม.')],maxDose:40}],refs:[1,3],ref:'1 mg/kg/dose q12–24h (max 40 mg)'},
+{id:'lactu',name:'Lactulose',cat:'gi',forms:[{label:'Syrup 10 g/15 ml (Hepalac)',amt:10,per:15,vol:'ml',hos:'0000374'}],
+ reg:[{basis:'day',lo:1,hi:2,unit:'g',freqs:[F(1,'วันละครั้ง'),F(2,'วันละ 2 ครั้ง')],maxDay:40}],refs:[11,1],ref:'Functional constipation: 1–2 g/kg/day OD–BID'},
+{id:'peg',name:'Macrogol (PEG)',cat:'gi',forms:[{label:'Powder 10 g/ซอง',amt:10,per:1,vol:'ซอง',hos:'Y'},{label:'Powder (g)',amt:1,per:1,vol:'g',mgOnly:true}],
+ reg:[{label:'Maintenance',basis:'day',lo:0.4,hi:0.8,unit:'g',freqs:OD,maxDay:17},{label:'Disimpaction',basis:'day',lo:1,hi:1.5,unit:'g',freqs:OD,maxDay:100,note:'× 3–6 วัน'}],
+ refs:[11],ref:'Maintenance: 0.4–0.8 g/kg/day (max 17 g)\nDisimpaction: 1–1.5 g/kg/day × 3–6 วัน (max 100 g)'},
+{id:'mom',name:'Milk of Magnesia',sub:'Laxative < 2 ปี',cat:'gi',forms:[{label:'Susp 400 mg/5 ml',amt:1,per:1,vol:'ml',hos:'0001352'}],
+ reg:[{basis:'dose',lo:0.5,hi:0.5,unit:'ml',freqs:OD}],warn:a=>a!=null&&a>=24?['warn','อายุ ≥ 2 ปี ใช้ขนาดตามอายุ (ส่วนล่าง)']:null,refs:[0,1],ref:'< 2 ปี: 0.5 ml/kg/dose'},
+{id:'hyosiv',name:'Hyoscine butylbromide IV/IM',cat:'gi',forms:[syr(20,1,'Inj 20 mg/ml','0000343')],
+ reg:[{basis:'dose',lo:0.3,hi:0.6,unit:'mg',freqs:[F(1,'ซ้ำได้ ไม่เกิน 1.5 mg/kg/day')],maxDose:20,maxDayKg:1.5}],refs:[3],ref:'1 เดือน–4 ปี 0.5 mg/kg, 5–11 ปี 5–10 mg, ≥ 12 ปี 20 mg (BNFC)\n0.3–0.6 mg/kg/dose (max 1.5 mg/kg/day)'},
+
+// ---------- neuro ----------
+{id:'pb',name:'Phenobarbital (oral)',cat:'neuro',forms:[tab(60,'Tab 60 mg','0000732'),tab(15,'Tab 15 mg'),tab(30,'Tab 30 mg')],
+ reg:[{basis:'day',lo:3,hi:5,unit:'mg',freqs:[F(1,'วันละครั้ง'),F(2,'ทุก 12 ชม.')]}],refs:[1,2],ref:'Maintenance: 3–5 mg/kg/day OD–BID'},
+{id:'pht',name:'Phenytoin (oral)',cat:'neuro',forms:[tab(50,'Infatab 50 mg','0000733'),tab(100,'Cap SR 100 mg','0000511','แคปซูล')],
+ reg:[{basis:'day',lo:5,hi:8,unit:'mg',freqs:[F(2,'ทุก 12 ชม.'),F(3,'ทุก 8 ชม.')],maxDay:300}],warn:()=>['warn','ติดตามระดับยา 10–20 mcg/ml'],refs:[1,2],ref:'Maintenance: 5–8 mg/kg/day ÷ 2–3 (max 300 mg/day)'},
+{id:'vpa',name:'Sodium valproate',cat:'neuro',forms:[syr(200,1,'Soln 200 mg/ml','0000739'),tab(500,'Tab chrono 500 mg','0001372')],
+ reg:[{label:'Initial',basis:'day',lo:10,hi:15,unit:'mg',freqs:[F(1,'วันละครั้ง'),F(2,'ทุก 12 ชม.'),F(3,'ทุก 8 ชม.')],note:'เพิ่ม 5–10 mg/kg/day ทุกสัปดาห์'},
+      {label:'Maintenance',basis:'day',lo:30,hi:60,unit:'mg',freqs:[F(2,'ทุก 12 ชม.'),F(3,'ทุก 8 ชม.')]}],
+ warn:a=>a!=null&&a<24?['danger','อายุ < 2 ปี เสี่ยงตับวายรุนแรง (boxed warning)']:null,refs:[1,0],ref:'Initial 10–15 mg/kg/day ÷ 1–3 ครั้ง\nMaintenance 30–60 mg/kg/day'},
+{id:'lev',name:'Levetiracetam (oral)',cat:'neuro',forms:[tab(500,'Tab 500 mg','0001921'),syr(100,1,'Soln 100 mg/ml')],
+ reg:[{label:'เริ่มต้น',basis:'dose',lo:10,hi:10,unit:'mg',freqs:BID,maxDose:500},{label:'สูงสุด',basis:'dose',lo:30,hi:30,unit:'mg',freqs:BID,maxDose:1500}],
+ refs:[1,2],ref:'≥ 6 เดือน: เริ่ม 10 mg/kg/dose BID ถึง 30 mg/kg/dose BID (max 1,500 mg/dose)'},
+
+// ---------- IV ----------
+{id:'paraiv',name:'Paracetamol IV',cat:'iv',forms:[syr(10,1,'Inj 10 mg/ml')],
+ reg:[{basis:'dose',lo:15,hi:15,unit:'mg',freqs:[F(4,'ทุก 6 ชม.')],maxDose:1000,maxDayFn:a=>a!=null&&a<24?null:4000,maxDayKgFn:a=>a!=null&&a<24?60:75}],refs:[1],ref:'≥ 2 ปี: 15 mg/kg q6h (max 75 mg/kg/day)\n1 เดือน–2 ปี: max 60 mg/kg/day'},
+{id:'amp',name:'Ampicillin',cat:'iv',forms:vial('Inj 1 g/vial','0000054'),
+ reg:[{label:'General',basis:'day',lo:100,hi:200,unit:'mg',freqs:QID,maxDay:12000},{label:'Meningitis',basis:'day',lo:300,hi:400,unit:'mg',freqs:QID,maxDay:12000}],refs:[1,4,17],ref:'100–200 mg/kg/day ÷ q6h\nMeningitis: 300–400 mg/kg/day ÷ q6h (max 12 g/day)'},
+{id:'ampsul',name:'Ampicillin–sulbactam',sub:'คิดตาม ampicillin',cat:'iv',forms:vial('Inj 3 g (amp 2 g + sulb 1 g)','0001194'),
+ reg:[{basis:'day',lo:100,hi:200,unit:'mg amp',freqs:QID,maxDay:8000}],refs:[1],ref:'100–200 mg ampicillin/kg/day ÷ q6h (max 8 g ampicillin/day)'},
+{id:'augiv',name:'Co-amoxiclav IV',sub:'คิดตามขนาดรวม',cat:'iv',forms:vial('Inj 1.2 g (1000+200)','0000747'),
+ reg:[{basis:'dose',lo:30,hi:30,unit:'mg',freqs:TID,maxDose:1200}],refs:[3],ref:'1 เดือน–17 ปี: 30 mg/kg (co-amoxiclav รวม) q8h (max 1.2 g)'},
+{id:'pgs',name:'Penicillin G sodium',cat:'iv',forms:[{label:'Inj 5 MU/vial',amt:1,per:1,vol:'units',mgOnly:true,hos:'0000752'}],
+ reg:[{label:'General',basis:'day',lo:100000,hi:300000,unit:'units',freqs:[F(6,'ทุก 4 ชม.'),F(4,'ทุก 6 ชม.')],maxDay:24000000},
+      {label:'Meningitis',basis:'day',lo:300000,hi:400000,unit:'units',freqs:[F(6,'ทุก 4 ชม.'),F(4,'ทุก 6 ชม.')],maxDay:24000000}],refs:[1,4,17],ref:'100,000–300,000 units/kg/day ÷ q4–6h\nMeningitis 300,000–400,000 units/kg/day (max 24 MU/day)'},
+{id:'bpg',name:'Benzathine penicillin G IM',cat:'iv',forms:[{label:'Inj 1.2 MU/vial',amt:1,per:1,vol:'units',mgOnly:true,hos:'0000795'}],
+ reg:[{basis:'dose',unit:'units',freqs:ONCE,fn:w=>fixed(w<27?600000:1200000),basisText:'< 27 kg 600,000 u · ≥ 27 kg 1.2 MU IM',note:'GAS pharyngitis / rheumatic fever'}],refs:[7,4],ref:'< 27 kg: 600,000 u IM ครั้งเดียว; ≥ 27 kg: 1.2 MU'},
+{id:'clox',name:'Cloxacillin IV',cat:'iv',forms:vial('Inj 1 g/vial','0000168'),reg:[{basis:'day',lo:100,hi:200,unit:'mg',freqs:QID,maxDay:12000}],refs:[1,3],ref:'100–200 mg/kg/day ÷ q6h (max 12 g/day)'},
+{id:'cefaz',name:'Cefazolin',cat:'iv',forms:vial('Inj 1 g/vial','0000754'),
+ reg:[{label:'General',basis:'day',lo:50,hi:100,unit:'mg',freqs:TID,maxDay:6000},{label:'Surgical prophylaxis',basis:'dose',lo:30,hi:30,unit:'mg',freqs:ONCE,maxDose:2000,note:'ภายใน 60 นาทีก่อนผ่าตัด'}],refs:[1,4],ref:'50–100 mg/kg/day ÷ q8h (max 6 g/day)\nProphylaxis: 30 mg/kg (max 2 g)'},
+{id:'ctx',name:'Ceftriaxone',cat:'iv',forms:vial('Inj 1 g/vial','0000761'),
+ reg:[{label:'General / CAP',basis:'day',lo:50,hi:75,unit:'mg',freqs:OD,maxDay:2000},{label:'Meningitis',basis:'day',lo:100,hi:100,unit:'mg',freqs:[F(2,'ทุก 12 ชม.'),F(1,'วันละครั้ง')],maxDay:4000}],
+ warn:a=>a!=null&&a<1?['danger','ทารกแรกเกิด: ห้ามใช้ร่วมกับ IV calcium และในภาวะตัวเหลือง ใช้ cefotaxime แทน']:null,refs:[1,4,6,17],ref:'50–75 mg/kg/day q24h (max 2 g)\nMeningitis: 100 mg/kg/day ÷ q12–24h (max 4 g/day)'},
+{id:'cefota',name:'Cefotaxime',cat:'iv',forms:vial('Inj 1 g/vial','0000757'),
+ reg:[{label:'General',basis:'day',lo:150,hi:200,unit:'mg',freqs:[F(3,'ทุก 8 ชม.'),F(4,'ทุก 6 ชม.')],maxDay:8000},{label:'Meningitis',basis:'day',lo:300,hi:300,unit:'mg',freqs:QID,maxDay:12000}],refs:[1,4,17],ref:'150–200 mg/kg/day ÷ q6–8h\nMeningitis: 300 mg/kg/day ÷ q6h (max 12 g/day)'},
+{id:'ceftaz',name:'Ceftazidime',cat:'iv',forms:vial('Inj 1 g/vial','0000122'),reg:[{basis:'day',lo:100,hi:150,unit:'mg',freqs:TID,maxDay:6000}],refs:[1],ref:'100–150 mg/kg/day ÷ q8h (max 6 g/day)'},
+{id:'mero',name:'Meropenem',cat:'iv',forms:vial('Inj 1 g/vial','0001328'),
+ reg:[{label:'General',basis:'dose',lo:20,hi:20,unit:'mg',freqs:TID,maxDose:1000},{label:'Meningitis',basis:'dose',lo:40,hi:40,unit:'mg',freqs:TID,maxDose:2000}],refs:[1,4],ref:'≥ 3 เดือน: 20 mg/kg q8h (max 1 g)\nMeningitis: 40 mg/kg q8h (max 2 g)'},
+{id:'tazo',name:'Piperacillin–tazobactam',sub:'คิดตาม piperacillin',cat:'iv',forms:vial('Inj 4.5 g/vial','0000514'),reg:[{basis:'dose',lo:100,hi:100,unit:'mg pip',freqs:TID,maxDose:4000}],refs:[1],ref:'> 9 เดือน: 100 mg/kg (piperacillin) q8h (max 4 g/dose)\n2–9 เดือน: 80 mg/kg q8h'},
+{id:'azitiv',name:'Azithromycin IV',cat:'iv',forms:vial('Inj 500 mg/vial','0001255'),reg:[{basis:'dose',lo:10,hi:10,unit:'mg',freqs:OD,maxDose:500}],refs:[1,6],ref:'10 mg/kg q24h (max 500 mg)'},
+{id:'cotriiv',name:'Cotrimoxazole IV',sub:'คิดตาม trimethoprim',cat:'iv',forms:[{label:'Inj SMX 400 + TMP 80 mg/5 ml',amt:80,per:5,vol:'ml',hos:'0001077'}],
+ reg:[{label:'Serious infection',basis:'day',lo:8,hi:12,unit:'mg TMP',freqs:[F(2,'ทุก 12 ชม.'),F(4,'ทุก 6 ชม.')]},{label:'PJP treatment',basis:'day',lo:15,hi:20,unit:'mg TMP',freqs:[F(3,'ทุก 8 ชม.'),F(4,'ทุก 6 ชม.')]}],refs:[1,4],ref:'8–12 mg TMP/kg/day ÷ q6–12h\nPJP: 15–20 mg TMP/kg/day ÷ q6–8h'},
+{id:'cipiv',name:'Ciprofloxacin IV',cat:'iv',forms:[syr(200,100,'Inj 200 mg/100 ml','0000763')],reg:[{basis:'dose',lo:10,hi:10,unit:'mg',freqs:[F(2,'ทุก 12 ชม.'),F(3,'ทุก 8 ชม.')],maxDose:400}],refs:[1],ref:'10 mg/kg q8–12h (max 400 mg/dose)'},
+{id:'genta',name:'Gentamicin',cat:'iv',forms:[syr(80,2,'Inj 80 mg/2 ml','0000773')],reg:[{basis:'dose',lo:5,hi:7.5,unit:'mg',freqs:[F(1,'วันละครั้ง')]}],warn:()=>['warn','ติดตามระดับยาและการทำงานของไต'],refs:[1,2],ref:'Extended-interval: 5–7.5 mg/kg q24h\nทารกแรกเกิดใช้ขนาดตาม GA/PNA'},
+{id:'amika',name:'Amikacin',cat:'iv',forms:[syr(500,2,'Inj 500 mg/2 ml','0000744')],reg:[{basis:'dose',lo:15,hi:20,unit:'mg',freqs:[F(1,'วันละครั้ง')],maxDose:1500}],warn:()=>['warn','ติดตามระดับยาและการทำงานของไต'],refs:[1],ref:'15–20 mg/kg q24h'},
+{id:'vanco',name:'Vancomycin',cat:'iv',forms:vial('Inj 500 mg/vial','0000785'),reg:[{basis:'dose',lo:15,hi:15,unit:'mg',freqs:QID,maxDose:1000}],warn:()=>['warn','ปรับขนาดตาม AUC 400–600 (ติดตามระดับยา)'],refs:[16,1],ref:'3 เดือน–< 12 ปี: 60–80 mg/kg/day ÷ q6h\nปรับตาม AUC/MIC 400–600'},
+{id:'clinda',name:'Clindamycin IV',cat:'iv',forms:[syr(150,1,'Inj 150 mg/ml','0000764')],reg:[{basis:'day',lo:20,hi:40,unit:'mg',freqs:[F(3,'ทุก 8 ชม.'),F(4,'ทุก 6 ชม.')],maxDose:900}],refs:[1,4],ref:'20–40 mg/kg/day ÷ q6–8h (max 900 mg/dose)'},
+{id:'metroiv',name:'Metronidazole IV',cat:'iv',forms:[syr(5,1,'Inj 0.5% (500 mg/100 ml)','0000777')],reg:[{basis:'day',lo:30,hi:30,unit:'mg',freqs:TID,maxDose:500}],refs:[1,4],ref:'30 mg/kg/day ÷ q8h (max 500 mg/dose)'},
+{id:'acviv',name:'Acyclovir IV',cat:'iv',forms:vial('Inj 500 mg/vial','0001778'),
+ reg:[{label:'HSV encephalitis 3 เดือน–12 ปี',basis:'dose',lo:10,hi:15,unit:'mg',freqs:TID,note:'× 14–21 วัน ให้สารน้ำเพียงพอ'},{label:'Varicella immunocompromised',basis:'dose',lo:10,hi:10,unit:'mg',freqs:TID}],refs:[4,1],ref:'HSV encephalitis 3 เดือน–12 ปี: 10–15 mg/kg q8h × 14–21 วัน'},
+{id:'flucoiv',name:'Fluconazole IV',cat:'iv',forms:[syr(2,1,'Inj 2 mg/ml','Y')],reg:[{basis:'dose',lo:6,hi:12,unit:'mg',freqs:OD,maxDose:800}],refs:[1],ref:'6–12 mg/kg q24h (invasive candidiasis 12 mg/kg)'},
+{id:'artes',name:'Artesunate IV',cat:'iv',forms:vial('Inj 60 mg/vial','Y'),
+ reg:[{basis:'dose',unit:'mg',freqs:[F(1,'0, 12, 24 ชม. แล้ววันละครั้ง')],fn:w=>fixed(w<20?3*w:2.4*w),basisText:'< 20 kg 3 mg/kg · ≥ 20 kg 2.4 mg/kg',note:'Severe malaria จนกินยาได้ แล้วต่อด้วย ACT ครบ 3 วัน'}],refs:[28],ref:'< 20 kg: 3 mg/kg; ≥ 20 kg: 2.4 mg/kg IV ที่ 0, 12, 24 ชม. แล้ววันละครั้ง'},
+
+// ---------- emergency ----------
+{id:'adrim',name:'Adrenaline (anaphylaxis IM)',cat:'emerg',forms:[syr(1,1,'Inj 1 mg/ml (1:1,000)','Y')],
+ reg:[{basis:'dose',lo:0.01,hi:0.01,unit:'mg',freqs:[F(1,'IM ต้นขาด้านนอก ซ้ำได้ทุก 5–15 นาที')],maxDoseFn:a=>a!=null&&a<144?0.3:0.5}],refs:[14,1],ref:'0.01 mg/kg IM (1 mg/ml) max 0.5 mg (< 12 ปี 0.3 mg)'},
+{id:'adrcpr',name:'Adrenaline (cardiac arrest IV/IO)',cat:'emerg',forms:[syr(0.1,1,'1 mg/ml เจือจาง 1 ml + NSS 9 ml = 0.1 mg/ml','Y')],
+ reg:[{basis:'dose',lo:0.01,hi:0.01,unit:'mg',freqs:[F(1,'ทุก 3–5 นาที')],maxDose:1}],refs:[24],ref:'0.01 mg/kg (0.1 ml/kg ของ 0.1 mg/ml) IV/IO ทุก 3–5 นาที (max 1 mg)'},
+{id:'adrneb',name:'Adrenaline (nebulized, croup)',cat:'emerg',forms:[{label:'1 mg/ml (1:1,000) ไม่ต้องเจือจาง',amt:1,per:1,vol:'ml',hos:'Y'}],
+ reg:[{basis:'dose',lo:0.5,hi:0.5,unit:'ml',freqs:[F(1,'พ่น สังเกตอาการ ≥ 2 ชม.')],maxDose:5}],refs:[1,23],ref:'0.5 ml/kg ของ 1:1,000 (max 5 ml)'},
+{id:'atro',name:'Atropine',cat:'emerg',forms:[syr(0.6,1,'Inj 0.6 mg/ml','0000654')],
+ reg:[{label:'Bradycardia',basis:'dose',lo:0.02,hi:0.02,unit:'mg',freqs:[F(1,'ซ้ำได้ 1 ครั้ง')],maxDose:0.5},{label:'Organophosphate',basis:'dose',lo:0.05,hi:0.1,unit:'mg',freqs:[F(1,'ซ้ำทุก 5–10 นาทีจนเสมหะแห้ง')]}],refs:[24,1],ref:'Bradycardia: 0.02 mg/kg IV (max 0.5 mg)\nOrganophosphate: 0.05–0.1 mg/kg ซ้ำจนได้ผล'},
+{id:'adeno',name:'Adenosine',cat:'emerg',forms:[syr(3,1,'Inj 6 mg/2 ml','Y')],
+ reg:[{label:'ครั้งแรก',basis:'dose',lo:0.1,hi:0.1,unit:'mg',freqs:[F(1,'IV push เร็ว + flush NSS')],maxDose:6},{label:'ครั้งที่สอง',basis:'dose',lo:0.2,hi:0.2,unit:'mg',freqs:[F(1,'IV push เร็ว + flush NSS')],maxDose:12}],refs:[24],ref:'SVT: 0.1 mg/kg (max 6 mg) แล้ว 0.2 mg/kg (max 12 mg)'},
+{id:'amio',name:'Amiodarone IV',cat:'emerg',forms:vial('Inj 150 mg/3 ml','Y'),reg:[{basis:'dose',lo:5,hi:5,unit:'mg',freqs:[F(1,'bolus (arrest) / ใน 20–60 นาที')],maxDose:300}],refs:[24],ref:'pVT/VF: 5 mg/kg bolus ซ้ำได้ถึง 3 ครั้ง (max 300 mg/dose)'},
+{id:'bolus',name:'0.9% NaCl bolus',cat:'emerg',forms:[{label:'NSS (ml)',amt:1,per:1,vol:'ml',hos:'0000890'}],reg:[{basis:'dose',lo:10,hi:20,unit:'ml',freqs:[F(1,'ใน 5–20 นาที ประเมินซ้ำ')],maxDose:1000}],refs:[24],ref:'Shock: 10–20 ml/kg ประเมินซ้ำหลังแต่ละ bolus'},
+{id:'d10',name:'Dextrose 10% (hypoglycemia)',cat:'emerg',forms:[{label:'D10W (ml)',amt:1,per:1,vol:'ml',hos:'0000858'}],reg:[{basis:'dose',lo:2,hi:5,unit:'ml',freqs:ONCE}],refs:[24,2],ref:'0.2–0.5 g/kg = D10W 2–5 ml/kg IV'},
+{id:'cagluc',name:'Calcium gluconate 10%',cat:'emerg',forms:[syr(100,1,'Inj 100 mg/ml','0000856')],reg:[{basis:'dose',lo:60,hi:60,unit:'mg',freqs:[F(1,'IV ช้า 5–10 นาที')],maxDose:3000}],refs:[24,1],ref:'60 mg/kg (0.6 ml/kg) IV ช้า (max 3 g)'},
+{id:'bicarb',name:'Sodium bicarbonate 7.5%',cat:'emerg',forms:[syr(0.9,1,'Inj 7.5% (0.9 mEq/ml)','0000593')],reg:[{basis:'dose',lo:1,hi:1,unit:'mEq',freqs:[F(1,'IV ช้า')],maxDose:50}],refs:[24],ref:'1 mEq/kg IV ช้า (ไม่แนะนำ routine ใน cardiac arrest)'},
+{id:'mgso4',name:'Magnesium sulfate (asthma)',cat:'emerg',forms:[{label:'50% (500 mg/ml)',amt:500,per:1,vol:'ml',hos:'0000877'},{label:'10% (100 mg/ml)',amt:100,per:1,vol:'ml',hos:'0000399'}],reg:[{basis:'dose',lo:25,hi:50,unit:'mg',freqs:[F(1,'IV drip ใน 20 นาที')],maxDose:2000}],refs:[9,1],ref:'Severe asthma: 25–50 mg/kg IV ใน 20 นาที (max 2 g)'},
+{id:'hc',name:'Hydrocortisone',cat:'emerg',forms:[syr(50,1,'Inj 100 mg/2 ml','0000335')],
+ reg:[{label:'Adrenal crisis',basis:'dose',lo:2,hi:2,unit:'mg',freqs:ONCE,maxDose:100},{label:'Severe asthma',basis:'dose',lo:4,hi:4,unit:'mg',freqs:QID,maxDose:100}],refs:[1,2],ref:'Adrenal crisis: 2 mg/kg (max 100 mg) IV stat\nAsthma: 4 mg/kg q6h (max 100 mg)'},
+{id:'nalox',name:'Naloxone',cat:'emerg',forms:[syr(0.4,1,'Inj 0.4 mg/ml','0000995')],reg:[{basis:'dose',lo:0.1,hi:0.1,unit:'mg',freqs:[F(1,'ซ้ำทุก 2–3 นาที')],maxDose:2}],refs:[24,1],ref:'Opioid toxicity (full reversal): 0.1 mg/kg (max 2 mg)'},
+{id:'charc',name:'Activated charcoal',cat:'emerg',forms:[{label:'Powder 50 g/pack',amt:1,per:1,vol:'g',mgOnly:true,hos:'0000127'}],reg:[{basis:'dose',lo:1,hi:1,unit:'g',freqs:ONCE,maxDose:50,note:'ภายใน 1 ชม. หลังกิน ทางเดินหายใจต้องปลอดภัย'}],refs:[1],ref:'1 g/kg (max 50 g)'},
+{id:'naciv',name:'Acetylcysteine IV (paracetamol overdose)',cat:'emerg',forms:[syr(100,1,'Inj 300 mg/3 ml','0001257')],
+ reg:[{label:'Bag 1',basis:'dose',lo:150,hi:150,unit:'mg',freqs:[F(1,'ใน 1 ชม.')],maxDose:15000},{label:'Bag 2',basis:'dose',lo:50,hi:50,unit:'mg',freqs:[F(1,'ใน 4 ชม.')],maxDose:5000},{label:'Bag 3',basis:'dose',lo:100,hi:100,unit:'mg',freqs:[F(1,'ใน 16 ชม.')],maxDose:10000}],
+ refs:[1,3],ref:'21-hour regimen: 150 mg/kg ใน 1 ชม. → 50 mg/kg ใน 4 ชม. → 100 mg/kg ใน 16 ชม. (คิดน้ำหนักสูงสุด 100 kg)\nเด็ก < 40 kg ลดปริมาตรสารละลายตามน้ำหนัก'},
+{id:'diaz',name:'Diazepam',cat:'emerg',forms:[syr(5,1,'Inj 10 mg/2 ml','0000199'),tab(5,'Tab 5 mg','0000718')],
+ reg:[{label:'IV',basis:'dose',lo:0.15,hi:0.2,unit:'mg',freqs:[F(1,'ซ้ำได้ 1 ครั้งหลัง 5 นาที')],maxDose:10},
+      {label:'Rectal (ใช้ยาฉีด)',basis:'dose',unit:'mg',freqs:ONCE,fn:(w,a)=>{const k=a==null||a<72?0.5:a<144?0.3:0.2;return fixed(Math.min(k*w,20))},basisText:'2–5 ปี 0.5 · 6–11 ปี 0.3 · ≥ 12 ปี 0.2 mg/kg (max 20)'}],
+ refs:[15,1],ref:'IV: 0.15–0.2 mg/kg (max 10 mg)\nRectal: 2–5 ปี 0.5 mg/kg, 6–11 ปี 0.3 mg/kg, ≥ 12 ปี 0.2 mg/kg (max 20 mg)'},
+{id:'mdz',name:'Midazolam',cat:'emerg',forms:[syr(5,1,'Inj 5 mg/ml','0000434')],
+ reg:[{label:'IM',basis:'dose',unit:'mg',freqs:ONCE,fn:w=>w<13?fixed(.2*w):fixed(w<=40?5:10),basisText:'13–40 kg 5 mg · > 40 kg 10 mg (< 13 kg 0.2 mg/kg)'},
+      {label:'Intranasal / buccal',basis:'dose',lo:0.2,hi:0.3,unit:'mg',freqs:ONCE,maxDose:10}],refs:[15,1],ref:'IM: 13–40 kg 5 mg, > 40 kg 10 mg\nIN 0.2 mg/kg, buccal 0.3 mg/kg (max 10 mg)'},
+{id:'phtiv',name:'Phenytoin IV (loading)',cat:'emerg',forms:[syr(50,1,'Inj 50 mg/ml','0000734')],reg:[{basis:'dose',lo:20,hi:20,unit:'mg',freqs:[F(1,'IV ≤ 1 mg/kg/min (max 50 mg/min) ใน NSS')],maxDose:1500}],refs:[15,1],ref:'Loading 20 mg/kg IV (max 1,500 mg) ติด ECG monitor'},
+{id:'levsep',name:'Levetiracetam IV (status)',cat:'emerg',forms:[syr(100,1,'Inj 500 mg/5 ml','0002115')],reg:[{basis:'dose',lo:60,hi:60,unit:'mg',freqs:[F(1,'IV ใน 10–15 นาที')],maxDose:4500}],refs:[15],ref:'60 mg/kg (max 4,500 mg)'},
+{id:'pbiv',name:'Phenobarbital IV (loading)',cat:'emerg',forms:[syr(200,1,'Inj 200 mg/ml','0000505')],reg:[{basis:'dose',lo:15,hi:20,unit:'mg',freqs:[F(1,'IV ≤ 1 mg/kg/min')],maxDose:1000}],refs:[15,1],ref:'Loading: 15–20 mg/kg IV (max 1 g)'},
+{id:'vpaiv',name:'Valproate IV (status)',cat:'emerg',forms:[syr(100,1,'Inj 400 mg/4 ml','0001277')],reg:[{basis:'dose',lo:40,hi:40,unit:'mg',freqs:[F(1,'IV ใน 10 นาที')],maxDose:3000}],warn:a=>a!=null&&a<24?['danger','อายุ < 2 ปี เสี่ยงตับวาย']:null,refs:[15],ref:'40 mg/kg IV (max 3,000 mg)'},
+{id:'caff',name:'Caffeine citrate',sub:'Apnea of prematurity',cat:'emerg',forms:[syr(20,1,'Inj 20 mg/ml (ให้ PO ได้)','Y')],
+ reg:[{label:'Loading',basis:'dose',lo:20,hi:20,unit:'mg',freqs:ONCE},{label:'Maintenance',basis:'dose',lo:5,hi:10,unit:'mg',freqs:[F(1,'ทุก 24 ชม.')]}],refs:[1],ref:'Loading 20 mg/kg แล้ว 5–10 mg/kg q24h (เริ่ม 24 ชม. หลัง loading)'},
+
+// ---------- vitamins / minerals ----------
+{id:'fe',name:'Ferrous fumarate',sub:'คิดตาม elemental iron',cat:'other',forms:[{label:'Drops 45 mg/0.6 ml (Fe 15 mg)',amt:15,per:0.6,vol:'ml',hos:'0001901'},{label:'Ferrokid 76 mg/5 ml (Fe 25 mg)',amt:25,per:5,vol:'ml',hos:'0001804'},{label:'Tab 200 mg (Fe 66 mg)',amt:66,per:1,vol:'เม็ด',hos:'0001486'}],
+ reg:[{label:'Prophylaxis',basis:'day',lo:1,hi:2,unit:'mg Fe',freqs:OD,maxDay:15,note:'2 mg/kg สำหรับทารกคลอดก่อนกำหนด'},
+      {label:'Iron-deficiency anemia',basis:'day',lo:3,hi:6,unit:'mg Fe',freqs:[F(1,'วันละครั้ง'),F(2,'วันละ 2 ครั้ง'),F(3,'วันละ 3 ครั้ง')],note:'× 3 เดือนหลัง Hb ปกติ'}],
+ refs:[19,1,0],ref:'Prophylaxis: 1 mg Fe/kg/day (preterm 2 mg/kg) max 15 mg\nIDA: 3–6 mg Fe/kg/day\nFerrous fumarate มี Fe ≈ 33%'},
+{id:'vite',name:'Vitamin E',cat:'other',forms:[{label:'Emulsion 50 iu/ml',amt:50,per:1,vol:'ml'}],reg:[{basis:'day',lo:15,hi:30,unit:'iu',freqs:OD}],refs:[0],ref:'Supplement: 15–30 iu/kg/day (ฉบับเดิม 2552)'},
+];
+
+function oselt(w,a){if(a!=null&&a<12)return fixed(3*w);return fixed(w<=15?30:w<=23?45:w<=40?60:75)}
+
+// ================= age-based =================
+const Y=m=>m*12;
+// rows: [minMonths, maxMonths(excl), label, dose]; min -1 = not age matched; hos = ผลิตภัณฑ์ใน รพ.
+const A=[
+ {name:'Cetirizine',sub:'Syrup 1 mg/ml · Tab 10 mg',hos:'Syrup 1 mg/ml (0001141), Tab 10 mg (0000690)',cat:'allergy',refs:[1,26],rows:[[6,Y(2),'6 เดือน–< 2 ปี','2.5 mg (2.5 ml) OD; 12–23 เดือน เพิ่มเป็น BID ได้'],[Y(2),Y(6),'2–5 ปี','2.5–5 mg OD'],[Y(6),999,'≥ 6 ปี','5–10 mg OD']]},
+ {name:'Desloratadine',sub:'Syrup 0.5 mg/ml · Tab 5 mg',hos:'Syrup 0.5 mg/ml (Esloray), Tab 5 mg (0001677)',cat:'allergy',refs:[1,26],rows:[[6,Y(1),'6–11 เดือน','1 mg (2 ml) OD'],[Y(1),Y(6),'1–5 ปี','1.25 mg (2.5 ml) OD'],[Y(6),Y(12),'6–11 ปี','2.5 mg (5 ml) OD'],[Y(12),999,'≥ 12 ปี','5 mg OD']]},
+ {name:'Loratadine',sub:'Syrup 5 mg/5 ml · Tab 10 mg',cat:'allergy',refs:[1,26],rows:[[Y(2),Y(6),'2–5 ปี','5 mg OD'],[Y(6),999,'≥ 6 ปี','10 mg OD']]},
+ {name:'Chlorpheniramine inj',sub:'10 mg/ml IM/IV',hos:'Inj 10 mg/ml (0000142)',cat:'allergy',refs:[3],rows:[[1,6,'1–5 เดือน','0.25 mg/kg (max 2.5 mg)'],[6,Y(6),'6 เดือน–5 ปี','2.5 mg'],[Y(6),Y(12),'6–11 ปี','5 mg'],[Y(12),999,'≥ 12 ปี','10 mg']]},
+ {name:'Montelukast',sub:'FDA boxed warning neuropsychiatric',hos:'Tab 10 mg (0000439) เท่านั้น',cat:'resp',refs:[1,22],rows:[[6,Y(6),'6 เดือน–5 ปี','4 mg OD ก่อนนอน (ไม่มีใน รพ.)'],[Y(6),Y(15),'6–14 ปี','5 mg OD (ไม่มีใน รพ.)'],[Y(15),999,'≥ 15 ปี','10 mg OD']]},
+ {name:'Salbutamol MDI + spacer',sub:'100 mcg/puff · acute asthma',hos:'Evohaler 100 mcg/dose (0000579)',cat:'resp',refs:[9],rows:[[0,Y(6),'≤ 5 ปี','2 puffs ทุก 20 นาที ในชั่วโมงแรก'],[Y(6),999,'≥ 6 ปี','4–10 puffs ทุก 20 นาที ในชั่วโมงแรก']]},
+ {name:'Ipratropium (nebulized)',sub:'ใช้ร่วม salbutamol ใน acute severe asthma',cat:'resp',refs:[1,9],rows:[[0,Y(12),'< 12 ปี','250 mcg ทุก 20 นาที × 3'],[Y(12),999,'≥ 12 ปี','500 mcg ทุก 20 นาที × 3']]},
+ {name:'Budesonide (nebulized, croup)',sub:'0.5 mg/ml',hos:'Pulmicort 1 mg/2 ml (0002080)',cat:'resp',refs:[23],rows:[[-1,-1,'ทุกอายุ','2 mg (4 ml) ครั้งเดียว ทางเลือกเมื่อกินยาไม่ได้']]},
+ {name:'Dextromethorphan',sub:'ไม่แนะนำ < 4 ปี',hos:'Tab 15 mg (0000692)',cat:'cold',refs:[1,13],rows:[[0,Y(4),'< 4 ปี','ไม่แนะนำ'],[Y(4),Y(6),'4–5 ปี','2.5–5 mg q4h หรือ 7.5 mg q6–8h (max 30 mg/day)'],[Y(6),Y(12),'6–11 ปี','5–10 mg q4h หรือ 15 mg q6–8h (max 60 mg/day)'],[Y(12),999,'≥ 12 ปี','10–20 mg q4h หรือ 30 mg q6–8h (max 120 mg/day)']]},
+ {name:'Bromhexine',sub:'Syrup 4 mg/5 ml · วันละ 3 ครั้ง',cat:'cold',refs:[26,21,0],rows:[[0,Y(2),'< 2 ปี','ไม่แนะนำ'],[Y(2),Y(6),'2–5 ปี','2 mg (2.5 ml) TID'],[Y(6),Y(12),'6–11 ปี','4 mg (5 ml) TID'],[Y(12),999,'≥ 12 ปี','8 mg (10 ml) TID']]},
+ {name:'Carbocisteine',sub:'Syrup 250 mg/5 ml',hos:'Syrup 250 mg/5 ml (0000689), Tab 375 mg (0001747)',cat:'cold',refs:[3,21],rows:[[0,Y(2),'< 2 ปี','ห้ามใช้'],[Y(2),Y(5),'2–4 ปี','62.5–125 mg (1.25–2.5 ml) QID'],[Y(5),Y(12),'5–11 ปี','250 mg (5 ml) TID'],[Y(12),999,'≥ 12 ปี','750 mg TID แล้วลดเป็น BID']]},
+ {name:'Glyceryl guaiacolate',sub:'Syrup 100 mg/5 ml · ไม่แนะนำ OTC < 4 ปี',hos:'Syrup 100 mg/5 ml (0001362)',cat:'cold',refs:[1,13,0],rows:[[6,Y(2),'6 เดือน–< 2 ปี','25–50 mg q4h (max 300 mg/day)'],[Y(2),Y(6),'2–5 ปี','50–100 mg q4h (max 600 mg/day)'],[Y(6),Y(12),'6–11 ปี','100–200 mg q4h (max 1.2 g/day)'],[Y(12),999,'≥ 12 ปี','200–400 mg q4h (max 2.4 g/day)']]},
+ {name:'ORS Plan A (no dehydration)',sub:'หลังถ่ายเหลวแต่ละครั้ง',hos:'ORS Minera 4.25 g (0000643)',cat:'gi',refs:[10],rows:[[0,Y(2),'< 2 ปี','50–100 ml'],[Y(2),Y(10),'2–9 ปี','100–200 ml'],[Y(10),999,'≥ 10 ปี','ตามต้องการ']]},
+ {name:'Zinc',sub:'Diarrhea · × 10–14 วัน',cat:'gi',refs:[10],rows:[[0,6,'< 6 เดือน','10 mg OD'],[6,999,'≥ 6 เดือน','20 mg OD']]},
+ {name:'Diosmectite',sub:'Dehecta 3 g/20 ml',hos:'Dehecta 3 g/20 ml (0002123)',cat:'gi',refs:[27,26],rows:[[0,Y(1),'< 1 ปี','3 g/วัน แบ่ง 2–3 ครั้ง'],[Y(1),Y(2),'1–2 ปี','3–6 g/วัน'],[Y(2),999,'> 2 ปี','6–9 g/วัน']]},
+ {name:'Saccharomyces boulardii',sub:'Bioflor 250 mg',hos:'Bioflor 250 mg (0001665)',cat:'gi',refs:[27],rows:[[-1,-1,'Acute gastroenteritis','250–750 mg/วัน × 5–7 วัน']]},
+ {name:'Simethicone drop',sub:'40 mg/0.6 ml · วันละ 3–4 ครั้ง',hos:'Drop 40 mg/0.6 ml (0000645)',cat:'gi',refs:[1,0],rows:[[0,Y(2),'< 2 ปี','20 mg (0.3 ml)'],[Y(2),Y(12),'2–11 ปี','40 mg (0.6 ml)']]},
+ {name:'Hyoscine butylbromide (oral)',sub:'Tab 10 mg',hos:'Tab 10 mg (0000636)',cat:'gi',refs:[3,0],rows:[[0,Y(6),'< 6 ปี','ข้อมูลจำกัด'],[Y(6),Y(12),'6–11 ปี','10 mg TID'],[Y(12),999,'≥ 12 ปี','10–20 mg TID–QID']]},
+ {name:'Milk of Magnesia',sub:'400 mg/5 ml',hos:'MOM 240 ml (0001352)',cat:'gi',refs:[1,0],rows:[[0,Y(2),'< 2 ปี','0.5 ml/kg/dose'],[Y(2),Y(6),'2–5 ปี','5–15 ml/วัน'],[Y(6),Y(12),'6–11 ปี','15–30 ml/วัน'],[Y(12),999,'≥ 12 ปี','30–60 ml/วัน'],[-1,-1,'Antacid','2.5–5 ml/dose ไม่เกิน 4 ครั้ง/วัน']]},
+ {name:'Alum milk',sub:'คิดตาม aluminium hydroxide',hos:'Bowa gel (0000627)',cat:'gi',refs:[0],rows:[[-1,-1,'Children','5–15 ml/dose วันละ 3–4 ครั้ง หลังอาหารและก่อนนอน']]},
+ {name:'Kaolin–pectin',cat:'gi',refs:[10],rows:[[-1,-1,'ทุกอายุ','ไม่แนะนำในอุจจาระร่วงเด็ก (WHO) ใช้ ORS + zinc']]},
+ {name:'Albendazole',sub:'Tab 200 mg · Susp 100 mg/5 ml',hos:'Tab 200 mg (0000793), Susp 100 mg/5 ml (0001699)',cat:'anti',refs:[25,4],rows:[[Y(1),Y(2),'1–< 2 ปี','200 mg (10 ml) ครั้งเดียว'],[Y(2),999,'≥ 2 ปี','400 mg (20 ml / 2 เม็ด) ครั้งเดียว, pinworm ซ้ำใน 2 สัปดาห์']]},
+ {name:'Mebendazole',sub:'Tab 100, 500 mg',cat:'anti',refs:[25,4,0],rows:[[Y(1),999,'≥ 1 ปี','STH: 500 mg ครั้งเดียว หรือ 100 mg BID × 3 วัน'],[Y(1),999,'≥ 1 ปี (pinworm)','100 mg ครั้งเดียว ซ้ำใน 2 สัปดาห์']]},
+ {name:'Nystatin',sub:'100,000 u/ml · หยอดกระพุ้งแก้ม',hos:'Susp 100,000 u/ml 12 ml (0000789)',cat:'anti',refs:[1,0],rows:[[-1,-1,'Preterm','1 ml QID'],[0,Y(1),'Infants','2 ml QID'],[Y(1),999,'เด็ก','4–6 ml QID']]},
+ {name:'Vitamin D',sub:'Cholecalciferol / calciferol',hos:'Calciferol 20,000 u cap (0001799)',cat:'other',refs:[20,31],rows:[[0,Y(1),'< 1 ปี ป้องกัน','400 IU/วัน'],[Y(1),999,'1–18 ปี ป้องกัน','600 IU/วัน'],[0,Y(1),'< 1 ปี รักษาภาวะขาด','2,000 IU/วัน × 90 วัน'],[Y(1),999,'≥ 1 ปี รักษาภาวะขาด','3,000–6,000 IU/วัน × 90 วัน หรือ 50,000 IU/สัปดาห์ (> 12 ปี)']]},
+ {name:'Vitamin K1',sub:'Phytomenadione',hos:'Inj 1 mg/0.5 ml (0000907), 10 mg/ml (0000908)',cat:'other',refs:[4,1],rows:[[0,1,'ทารกแรกเกิด','1 mg IM ครั้งเดียว (< 1,500 g: 0.3–0.5 mg)']]},
+ {name:'Multivitamin',sub:'วันละ 1 ครั้ง',hos:'Multivitamin drops 15 ml (0000879)',cat:'other',refs:[0,26],rows:[[0,Y(1),'< 1 ปี','drops ตามฉลากผลิตภัณฑ์'],[Y(1),Y(6)+1,'1–6 ปี','5 ml'],[Y(6)+1,999,'> 6 ปี','5–10 ml']]},
+ {name:'Mist. Scill. Ammon',sub:'วันละ 3 ครั้ง',cat:'cold',refs:[0],rows:[[0,Y(6),'< 6 ปี','ห้ามใช้'],[Y(6),Y(12)+1,'6–12 ปี','2.5–5 ml']]},
+];
+
+const CATS={all:'ทั้งหมด',fever:'ลดไข้/ปวด',abx:'ยาปฏิชีวนะ (กิน)',iv:'ยาฉีด',anti:'TB/มาลาเรีย/ไวรัส/เชื้อรา/พยาธิ',allergy:'แก้แพ้',cold:'หวัด/ไอ',resp:'หอบหืด/croup',gi:'ทางเดินอาหาร',neuro:'กันชัก',emerg:'ฉุกเฉิน',other:'วิตามิน/เกลือแร่'};
+
+// ================= state =================
+const st={wt:10,age:null,q:'',cat:'all',sel:{},hosOnly:true};
+try{const s=JSON.parse(localStorage.getItem('peddose')||'{}');if(s.wt>0)st.wt=s.wt;if(s.hosOnly===false)st.hosOnly=false;}catch(e){}
+const save=()=>{try{localStorage.setItem('peddose',JSON.stringify({wt:st.wt,hosOnly:st.hosOnly}))}catch(e){}};
+
+const $=id=>document.getElementById(id);
+const r1=x=>Math.round(x*10)/10, r2=x=>Math.round(x*100)/100;
+const fmt=x=>{if(x>=1000)return Math.round(x).toLocaleString();if(x>=100)return String(Math.round(x));if(x>=10)return String(r1(x));return String(r2(x))};
+const vfmt=x=>x<1?String(r2(x)):String(r1(x));
+const quarter=x=>{if(x<0.25)return String(r2(x));const q=Math.round(x*4)/4;const w=Math.floor(q),f=q-w;const fs={0:'',0.25:'¼',0.5:'½',0.75:'¾'}[f];return (w?w:'')+(fs||'')||'0'};
+const eq=(a,b)=>Math.abs(a-b)<1e-9;
+const forms=d=>st.hosOnly?d.forms.filter(f=>f.hos):d.forms;
+const hosLabel=f=>f.hos?(f.hos==='Y'?'มีในบัญชี':`รหัส ${f.hos}`):'';
+
+function calc(d){
+  const s=st.sel[d.id]||(st.sel[d.id]={f:0,r:0,q:0});
+  const fs=forms(d); if(s.f>=fs.length)s.f=0;
+  const form=fs[s.f], reg=d.reg[s.r]||d.reg[0], fq=reg.freqs[s.q]||reg.freqs[0];
+  const w=st.wt,a=st.age; let lo,hi,capped=false,adult=false;
+  if(reg.adult&&w>=reg.adult.wt){lo=reg.adult.lo;hi=reg.adult.hi;adult=true}
+  else if(reg.fn){({lo,hi}=reg.fn(w,a))}
+  else if(reg.basis==='day'){lo=reg.lo*w/fq.n;hi=reg.hi*w/fq.n}
+  else{lo=reg.lo*w;hi=reg.hi*w}
+  let max=Infinity;
+  if(reg.maxDose)max=Math.min(max,reg.maxDose);
+  if(reg.maxDoseFn){const m=reg.maxDoseFn(a);if(m)max=Math.min(max,m)}
+  if(reg.maxDay)max=Math.min(max,reg.maxDay/fq.n);
+  if(reg.maxDayKg)max=Math.min(max,reg.maxDayKg*w/fq.n);
+  if(reg.maxDayKgFn){const m=reg.maxDayKgFn(a);if(m)max=Math.min(max,m*w/fq.n)}
+  if(reg.maxDayFn){const m=reg.maxDayFn(a);if(m)max=Math.min(max,m/fq.n)}
+  if(hi>max+1e-9){hi=max;capped=true} if(lo>max+1e-9){lo=max;capped=true}
+  const toVol=x=>x/form.amt*form.per;
+  return {s,fs,form,reg,fq,lo,hi,vlo:toVol(lo),vhi:toVol(hi),capped,adult};
+}
+
+function chipRow(items,active,key,id){
+  if(items.length<2)return '';
+  return `<div class="opts">${items.map((t,i)=>`<button class="chip" data-id="${id}" data-k="${key}" data-i="${i}" aria-pressed="${i===active}">${t}</button>`).join('')}</div>`;
+}
+const refLinks=r=>`<div class="refs">อ้างอิง ${r.map(n=>`<a href="#ref-${n}" title="${REFS[n].replace(/"/g,'&quot;')}">${n===0?'เดิม':n}</a>`).join('')}</div>`;
+
+function card(d){
+  const c=calc(d),{form,reg,fq}=c;
+  const same=eq(c.lo,c.hi);
+  const amt=same?fmt(c.lo):`${fmt(c.lo)}–${fmt(c.hi)}`;
+  const day=same?fmt(c.lo*fq.n):`${fmt(c.lo*fq.n)}–${fmt(c.hi*fq.n)}`;
+  let big,extra='';
+  if(form.mgOnly){big=`${amt}<small>${reg.unit}</small>`}
+  else if(form.vol==='ml'){
+    big=`${same?vfmt(c.vlo):vfmt(c.vlo)+' – '+vfmt(c.vhi)}<small>ml</small>`;
+    if(c.vhi>=2.5&&form.per>=5&&form.per<=15)extra=` · ≈ ${quarter(c.vlo/5)}${same?'':'–'+quarter(c.vhi/5)} ช้อนชา`;
+  } else {
+    big=`${same?quarter(c.vlo):quarter(c.vlo)+' – '+quarter(c.vhi)}<small>${form.vol}</small>`;
+    extra=` · ${fmt(c.vlo)}${same?'':'–'+fmt(c.vhi)} ${form.vol}`;
+  }
+  const basis=c.adult?`ขนาดผู้ใหญ่ (น้ำหนัก ≥ ${reg.adult.wt} kg)`:reg.basisText||`${reg.lo===reg.hi?reg.lo:reg.lo+'–'+reg.hi} ${reg.unit}/kg/${reg.basis==='day'?'day':'dose'}`;
+  const flags=[];
+  const w=d.warn&&d.warn(st.age,st.wt); if(w)flags.push(w);
+  if(form.clav){const cd=c.hi*fq.n/form.amt*form.clav/st.wt; if(cd>10.05)flags.push(['warn',`Clavulanate ≈ ${r1(cd)} mg/kg/day (> 10) เสี่ยงท้องเสีย`])}
+  if(c.capped)flags.push(['warn','ปรับลดตามขนาดสูงสุด']);
+  if(st.wt>40&&!reg.adult&&!c.capped&&!reg.fn)flags.push(['warn','น้ำหนัก > 40 kg ตรวจสอบไม่ให้เกินขนาดผู้ใหญ่']);
+  if(!form.vol.match(/ml|mg|g|units/)&&c.vlo<0.25)flags.push(['warn','ขนาดน้อยกว่า ¼ เม็ด พิจารณาเตรียมเป็นยาน้ำหรือแบ่งซอง']);
+  const blocked=flags.some(f=>f[0]==='danger');
+  const mgLine=form.mgOnly?`${day} ${reg.unit}/วัน`:`${amt} ${reg.unit}/ครั้ง · ${day} ${reg.unit}/วัน`;
+  const hos=form.hos?`<div class="hos"><b>รพ.พังงา</b> · ${form.label} · ${hosLabel(form)}</div>`:`<div class="hos no"><b>ไม่มีในบัญชี รพ.พังงา</b> · ${form.label}</div>`;
+  return `<article class="card${blocked?' blocked':''}">
+    <div class="ch"><div><div class="name">${d.name}${d.sub?` <span class="strength">· ${d.sub}</span>`:''}</div>${hos}</div><span class="cat">${CATS[d.cat]}</span></div>
+    ${chipRow(d.reg.map(r=>r.label||''),c.s.r,'r',d.id)}
+    ${chipRow(c.fs.map(f=>f.label+(f.hos?'':'<span class="x">นอกบัญชี</span>')),c.s.f,'f',d.id)}
+    ${chipRow(reg.freqs.map(f=>f.label),c.s.q,'q',d.id)}
+    <div class="result">
+      <div class="big">${big}</div>
+      <div class="freq">${fq.label}</div>
+      <div class="meta">${mgLine}${extra}<br>${basis}</div>
+    </div>
+    ${reg.note?`<div class="note">${reg.note}</div>`:''}
+    ${flags.map(f=>`<div class="flag ${f[0]==='danger'?'danger':''}">${f[1]}</div>`).join('')}
+    <details><summary>ขนาดยาตามเอกสารอ้างอิง</summary><p>${d.ref}</p></details>
+    ${refLinks(d.refs)}
+  </article>`;
+}
+
+function ageCard(d){
+  const a=st.age;
+  const hos=d.hos?`<div class="hos"><b>รพ.พังงา</b> · ${d.hos}</div>`:`<div class="hos no"><b>ไม่มีในบัญชี รพ.พังงา</b></div>`;
+  return `<article class="card"><div class="ch"><div><div class="name">${d.name}</div>${d.sub?`<div class="strength">${d.sub}</div>`:''}${hos}</div><span class="cat">${CATS[d.cat]}</span></div>
+  <div style="overflow-x:auto"><table class="agetbl">${d.rows.map(r=>`<tr class="${a!=null&&r[0]>=0&&a>=r[0]&&a<r[1]?'on':''}"><td>${r[2]}</td><td>${r[3]}</td></tr>`).join('')}</table></div>${refLinks(d.refs)}</article>`;
+}
+
+function match(d,isAge){
+  if(st.hosOnly&&(isAge?!d.hos:!d.forms.some(f=>f.hos)))return false;
+  if(st.cat!=='all'&&d.cat!==st.cat)return false;
+  if(!st.q)return true;
+  return (d.name+' '+(d.sub||'')).toLowerCase().includes(st.q);
+}
+
+function render(){
+  const w=W.filter(d=>match(d,false)),a=A.filter(d=>match(d,true));
+  const hidden=st.hosOnly?W.filter(d=>!d.forms.some(f=>f.hos)).length+A.filter(d=>!d.hos).length:0;
+  $('wcount').textContent=`${w.length} รายการ · ขนาดต่อครั้ง`+(hidden?` · ซ่อนยานอกบัญชี ${hidden} รายการ`:'');
+  $('wlist').innerHTML=w.length?w.map(card).join(''):'<div class="empty">ไม่พบยาที่ตรงกับคำค้นในหมวดนี้</div>';
+  $('alist').innerHTML=a.length?a.map(ageCard).join(''):'<div class="empty">ไม่พบยาที่ตรงกับคำค้นในหมวดนี้</div>';
+  document.querySelectorAll('#wtChips .chip').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.w===st.wt));
+  $('neoNotice').hidden=!(st.age!=null&&st.age<1);
+}
+
+// ================= wiring =================
+$('reflist').innerHTML=Object.keys(REFS).map(Number).sort((x,y)=>(x||99)-(y||99)).map(n=>`<li id="ref-${n}"><b>${n===0?'เดิม':n}</b><span>${REFS[n]}</span></li>`).join('');
+$('wtChips').innerHTML=[3,5,8,10,13,15,18,20,25,30,40].map(k=>`<button class="chip mono" data-w="${k}">${k} kg</button>`).join('');
+$('cats').innerHTML=Object.entries(CATS).map(([k,v])=>`<button class="chip" data-cat="${k}" aria-pressed="${k==='all'}">${v}</button>`).join('');
+$('wt').value=st.wt; $('hosOnly').checked=st.hosOnly;
+
+const setWt=v=>{v=Math.max(0.5,Math.min(150,r1(v)));if(!isFinite(v))return;st.wt=v;$('wt').value=v;save();render()};
+$('wt').addEventListener('input',e=>{const v=parseFloat(e.target.value);if(v>0){st.wt=v;save();render()}});
+$('wtMinus').onclick=()=>setWt(st.wt-0.5);
+$('wtPlus').onclick=()=>setWt(st.wt+0.5);
+$('wtChips').onclick=e=>{const b=e.target.closest('[data-w]');if(b)setWt(+b.dataset.w)};
+$('hosOnly').addEventListener('change',e=>{st.hosOnly=e.target.checked;for(const k in st.sel)st.sel[k].f=0;save();render()});
+$('cats').onclick=e=>{const b=e.target.closest('[data-cat]');if(!b)return;st.cat=b.dataset.cat;
+  document.querySelectorAll('#cats .chip').forEach(x=>x.setAttribute('aria-pressed',x===b));render()};
+$('q').addEventListener('input',e=>{st.q=e.target.value.trim().toLowerCase();render()});
+const setAge=()=>{const y=$('ageY').value,m=$('ageM').value;
+  if(y===''&&m===''){st.age=null;$('ageHint').textContent='ไม่ระบุอายุ ระบบจะไม่ตรวจข้อห้ามตามอายุ'}
+  else{st.age=(+y||0)*12+(+m||0);$('ageHint').textContent=`อายุ ${st.age} เดือน · ตรวจข้อห้ามและไฮไลต์ขนาดตามอายุแล้ว`}
+  render()};
+$('ageY').addEventListener('input',setAge);$('ageM').addEventListener('input',setAge);
+$('wlist').onclick=e=>{const b=e.target.closest('[data-k]');if(!b)return;const s=st.sel[b.dataset.id];
+  s[b.dataset.k]=+b.dataset.i;
+  if(b.dataset.k==='r'){s.q=0;const d=W.find(x=>x.id===b.dataset.id),r=d.reg[s.r];if(r.pref){const i=forms(d).findIndex(f=>f.label.includes(r.pref));if(i>=0)s.f=i}}
+  render()};
+render();
+</script>
+
+</body>
+</html>
